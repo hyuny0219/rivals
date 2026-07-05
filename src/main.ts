@@ -14,7 +14,7 @@ import { Bot, Difficulty } from './entities/bot'
 import { DuelManager } from './game/duel'
 import { AudioEngine } from './core/audio'
 import { loadSettings, saveSettings } from './core/settings'
-import { OnlineManager, defaultServerUrl, RoundInfo } from './net/online'
+import { OnlineManager, defaultServerUrl, RoundInfo, RosterInfo, LobbyInfo } from './net/online'
 import { RemotePlayer } from './entities/remote'
 import { WEAPONS } from './combat/weapons'
 
@@ -118,13 +118,15 @@ const playerTarget: PlayerTarget = {
     // dead players are not targetable/hittable; outside matches hp resets
     return playerTarget.hp > 0
   },
-  team: 0,
+  get team() {
+    return online.active ? onlineTeam : 0
+  },
   hp: MAX_HP,
   lastDamageAt: -Infinity,
   takeDamage(amount: number): boolean {
     if (online.active) {
       // online: the server owns HP — report own-grenade self-damage as a claim
-      if (online.phase === 'combat') online.sendHit('grenade', amount, true)
+      if (online.phase === 'combat' && onlineYouId) online.sendHit('grenade', amount, onlineYouId)
       return false
     }
     if (duel.active && (duel.frozen || playerTarget.hp <= 0)) return false
@@ -207,12 +209,15 @@ const projectiles = new ProjectileManager(
   scene,
   physics,
   effects,
-  () => [...dummies, playerTarget, ...allyBots, ...enemyBots, remote],
+  () => [...dummies, playerTarget, ...allyBots, ...enemyBots, ...remotePool],
   (target, damage, killed) => {
     if (target !== playerTarget) {
       showHitmarker(killed)
       audio.hit(killed)
-      if (target === remote && online.active) online.sendHit('grenade', damage)
+      if (online.active) {
+        const id = idByEntity.get(target)
+        if (id) online.sendHit('grenade', damage, id)
+      }
     }
   },
 )
@@ -227,7 +232,10 @@ const weapons = new WeaponController(
   (info) => {
     showHitmarker(info.killed && info.isHead ? true : info.killed)
     audio.hit(info.killed)
-    if (info.target === remote && online.active) online.sendHit(weapons.weapon.id, info.damage)
+    if (online.active) {
+      const id = idByEntity.get(info.target)
+      if (id) online.sendHit(weapons.weapon.id, info.damage, id)
+    }
   },
   audio,
 )
@@ -268,12 +276,23 @@ function makeBot(name: string, team: number, color: number, seed: number, getEne
   return b
 }
 
-const allyBots: Bot[] = [0, 1, 2].map((i) =>
-  makeBot(`아군 ${i + 1}`, 0, ALLY_COLOR, 0xa110 + i, () => enemyBots),
-)
-const enemyBots: Bot[] = [0, 1, 2, 3].map((i) =>
-  makeBot(`적 ${i + 1}`, 1, ENEMY_COLOR, 0xe4e0 + i, () => [playerTarget, ...allyBots]),
-)
+/** Enemies for a bot on `team` — local rosters offline, registry online. */
+function enemiesOfTeam(team: number): import('./entities/bot').BotTarget[] {
+  if (online.active) {
+    const out: import('./entities/bot').BotTarget[] = []
+    if (onlineTeam !== team) out.push(playerTarget)
+    for (const e of onlineEntities.values()) {
+      if (e.team === team) continue
+      const entity = e.remote ?? e.bot
+      if (entity) out.push(entity)
+    }
+    return out
+  }
+  return team === 0 ? enemyBots : [playerTarget, ...allyBots]
+}
+
+const allyBots: Bot[] = [0, 1, 2].map((i) => makeBot(`아군 ${i + 1}`, 0, ALLY_COLOR, 0xa110 + i, () => enemiesOfTeam(0)))
+const enemyBots: Bot[] = [0, 1, 2, 3].map((i) => makeBot(`적 ${i + 1}`, 1, ENEMY_COLOR, 0xe4e0 + i, () => enemiesOfTeam(1)))
 
 function aliveCounts(): { allies: number; enemies: number } {
   return {
@@ -359,18 +378,36 @@ function beginDuel() {
   botHpWrap.classList.remove('hidden')
 }
 
-// ---------- online 1v1 ----------
-const remote = new RemotePlayer(physics)
-scene.add(remote.group)
+// ---------- online team matches ----------
+// pool of opponents/teammates rendered from snapshots (max 7 others in 4v4)
+const remotePool: RemotePlayer[] = Array.from({ length: 7 }, () => {
+  const r = new RemotePlayer(physics)
+  scene.add(r.group)
+  return r
+})
 
-let onlineSide = 0
+interface OnlineEntity {
+  team: number
+  hp: number
+  spawnIdx: number
+  name: string
+  remote?: RemotePlayer
+  bot?: Bot
+}
+
+let onlineYouId = ''
+let onlineTeam = 0
+let onlineTeamSize = 1
+let onlineIsHost = false
+let mySpawnIdx = 0
 let onlineMyHp = MAX_HP
-let onlineEnemyHp = MAX_HP
 let onlineScoreYou = 0
 let onlineScoreEnemy = 0
 let onlineRound = 0
 let onlineGoRequested = false
 let onlineSendTimer = 0
+const onlineEntities = new Map<string, OnlineEntity>()
+const idByEntity = new Map<Damageable, string>()
 const onlineTimers: number[] = []
 const tmpEye = new THREE.Vector3()
 const tmpDir = new THREE.Vector3()
@@ -386,23 +423,121 @@ function clearOnlineTimers() {
   onlineTimers.length = 0
 }
 
+function onlineAliveCounts(): { allies: number; enemies: number } {
+  let allies = onlineMyHp > 0 ? 1 : 0
+  let enemies = 0
+  for (const e of onlineEntities.values()) {
+    if (e.hp <= 0) continue
+    if (e.team === onlineTeam) allies++
+    else enemies++
+  }
+  return { allies, enemies }
+}
+
+function firstEnemyEntry(): [string, OnlineEntity] | null {
+  let fallback: [string, OnlineEntity] | null = null
+  for (const [id, e] of onlineEntities) {
+    if (e.team === onlineTeam) continue
+    if (e.hp > 0) return [id, e]
+    fallback ??= [id, e]
+  }
+  return fallback
+}
+
+/** Build the roster: remotes for other humans (and bots when not hosting),
+ * local Bot instances for bots when we are the host. */
+function setupRoster(info: RosterInfo) {
+  teardownRoster()
+  onlineYouId = info.you
+  onlineTeamSize = info.teamSize
+  onlineIsHost = info.you === info.hostId
+  onlineTeam = info.players.find((p) => p.id === info.you)?.team ?? 0
+  idByEntity.set(playerTarget, info.you)
+
+  const teamIdx = [0, 0]
+  const poolIdx = [0, 0] // host bot pools consumed per team
+  let remoteIdx = 0
+  let botNum = 1
+
+  for (const p of info.players) {
+    const spawnIdx = teamIdx[p.team]++
+    if (p.id === info.you) {
+      mySpawnIdx = spawnIdx
+      continue
+    }
+    const r = remotePool[remoteIdx++]
+    r.setAppearance(p.id.toUpperCase(), p.team, p.team === onlineTeam ? ALLY_COLOR : ENEMY_COLOR)
+    onlineEntities.set(p.id, { team: p.team, hp: MAX_HP, spawnIdx, name: p.id.toUpperCase(), remote: r })
+    idByEntity.set(r, p.id)
+  }
+  for (const b of info.bots) {
+    const spawnIdx = teamIdx[b.team]++
+    const name = `BOT ${botNum++}`
+    if (onlineIsHost) {
+      // the host runs the actual bot AI from the local pools (team 0 = ally
+      // pool since the host/creator is always team 0) and relays its state
+      const bot = b.team === 0 ? allyBots[poolIdx[0]++] : enemyBots[poolIdx[1]++]
+      bot.serverControlledHp = true
+      bot.damageSink = (target, damage, _isHead, botRef) => {
+        const targetId = idByEntity.get(target)
+        const attackerId = idByEntity.get(botRef)
+        if (targetId && attackerId) online.sendHit('ar', damage, targetId, attackerId)
+      }
+      bot.onFiredRelay = (botRef) => {
+        const attackerId = idByEntity.get(botRef)
+        if (attackerId) online.sendFire('ar', attackerId)
+      }
+      onlineEntities.set(b.id, { team: b.team, hp: MAX_HP, spawnIdx, name, bot })
+      idByEntity.set(bot, b.id)
+    } else {
+      const r = remotePool[remoteIdx++]
+      r.setAppearance(name, b.team, b.team === onlineTeam ? ALLY_COLOR : ENEMY_COLOR)
+      onlineEntities.set(b.id, { team: b.team, hp: MAX_HP, spawnIdx, name, remote: r })
+      idByEntity.set(r, b.id)
+    }
+  }
+}
+
+function teardownRoster() {
+  for (const e of onlineEntities.values()) {
+    e.remote?.deactivate()
+    if (e.bot) {
+      e.bot.serverControlledHp = false
+      e.bot.damageSink = undefined
+      e.bot.onFiredRelay = undefined
+      e.bot.deactivate()
+    }
+  }
+  onlineEntities.clear()
+  idByEntity.clear()
+}
+
 function handleOnlineRound(info: RoundInfo) {
   onlineRound = info.round
   onlineScoreYou = info.scoreYou
   onlineScoreEnemy = info.scoreEnemy
-  onlineMyHp = info.hpYou
-  onlineEnemyHp = info.hpEnemy
+  onlineMyHp = info.hps[onlineYouId] ?? MAX_HP
+  playerTarget.hp = onlineMyHp
   clearOnlineTimers()
 
   if (info.phase === 'countdown') {
     for (const d of dummies) d.setEnabled(false)
     weapons.allowCycling = false // online loadout is locked
-    player.spawn(map.spawns[onlineSide].position, map.spawns[onlineSide].yaw)
+    const mySp = map.teamSpawns[onlineTeam][mySpawnIdx]
+    player.spawn(mySp.position, mySp.yaw)
     weapons.setLoadout(selectedPrimary, selectedSecondary)
     projectiles.clear()
-    remote.activate(map.spawns[onlineSide ^ 1].position, map.spawns[onlineSide ^ 1].yaw)
+    for (const e of onlineEntities.values()) {
+      e.hp = MAX_HP
+      const sp = map.teamSpawns[e.team][e.spawnIdx]
+      if (e.remote) e.remote.activate(sp.position, sp.yaw)
+      if (e.bot) {
+        e.bot.setDifficulty('normal')
+        e.bot.reset(sp.position.clone(), sp.yaw)
+        e.bot.serverControlledHp = true
+      }
+    }
     scoreWrap.classList.remove('hidden')
-    botHpWrap.classList.remove('hidden')
     // round 1 opens with a 10s loadout window (server countdown is 13s);
     // later rounds go straight into the local 3-2-1 display
     const pickOffset = info.round === 1 ? 10000 : 0
@@ -427,7 +562,6 @@ function handleOnlineRound(info: RoundInfo) {
     showBanner(info.youWon ? '라운드 승리!' : '라운드 패배', `${info.scoreYou} : ${info.scoreEnemy}`, 2)
     if (info.youWon) audio.roundWin()
     else audio.roundLose()
-    addFeedEntry(info.youWon ? '<b>YOU</b> 상대 처치' : '<b>상대</b> YOU 처치')
   } else if (info.phase === 'matchEnd') {
     showBanner(info.youWon ? '승리!' : '패배', `${info.scoreYou} : ${info.scoreEnemy}`, 3.5)
     if (info.youWon) audio.win()
@@ -439,7 +573,7 @@ function endOnlineCleanup() {
   hideLoadoutPanel()
   clearOnlineTimers()
   online.leave()
-  remote.deactivate()
+  teardownRoster()
   weapons.allowCycling = true
   for (const d of dummies) d.setEnabled(true)
   projectiles.clear()
@@ -447,56 +581,86 @@ function endOnlineCleanup() {
   playerTarget.lastDamageAt = -Infinity
   scoreWrap.classList.add('hidden')
   botHpWrap.classList.add('hidden')
+  aliveRow.classList.add('hidden')
   onlineStatus.classList.add('hidden')
   onlineGoBtn.classList.add('hidden')
   if (document.pointerLockElement === canvas) document.exitPointerLock()
   else if (playing) setPlaying(false)
 }
 
+function renderLobby(info: LobbyInfo) {
+  const cap = info.teamSize * 2
+  const label = (team: number) =>
+    info.players
+      .filter((p) => p.team === team)
+      .map((p) => `${p.id === info.you ? 'YOU' : p.id.toUpperCase()}${p.id === info.hostId ? '👑' : ''}${p.ready ? ' ✓' : ''}`)
+      .join(', ') || '—'
+  const me = info.players.find((p) => p.id === info.you)
+  setOnlineStatus(
+    `방 <b>${info.code}</b> (${info.teamSize}v${info.teamSize}) · ${info.players.length}/${cap}명 · 빈자리는 봇<br/>` +
+      `<span style="color:#57d38c">팀 A: ${label(0)}</span> · <span style="color:#ff5a3c">팀 B: ${label(1)}</span>`,
+    !(me?.ready ?? false),
+  )
+}
+
 const online = new OnlineManager({
-  onCreated: (code) => setOnlineStatus(`방 코드: <b>${code}</b> — 상대 대기 중…`),
-  onMatched: () => setOnlineStatus('상대 입장! 준비되면 시작을 누르세요', true),
+  onCreated: (code) => setOnlineStatus(`방 코드: <b>${code}</b> — 참가자 대기 중…`, true),
+  onLobby: renderLobby,
+  onRoster: setupRoster,
   onRound: handleOnlineRound,
-  onHp: (you, enemy) => {
-    if (you < onlineMyHp) {
-      audio.hurt()
-      damageFlash = Math.min(1, damageFlash + (onlineMyHp - you) / 50)
+  onHp: (id, hp) => {
+    if (id === onlineYouId) {
+      if (hp < onlineMyHp) {
+        audio.hurt()
+        damageFlash = Math.min(1, damageFlash + (onlineMyHp - hp) / 50)
+      }
+      const wasAlive = onlineMyHp > 0
+      onlineMyHp = hp
+      playerTarget.hp = hp
+      if (hp <= 0 && wasAlive) {
+        addFeedEntry('<b>YOU</b> 사망')
+        const { allies } = onlineAliveCounts()
+        if (allies > 0) showBanner('사망', '아군의 승리를 기다리는 중…', 2.5)
+      }
+      return
     }
-    onlineMyHp = you
-    onlineEnemyHp = enemy
+    const e = onlineEntities.get(id)
+    if (!e) return
+    const wasAlive = e.hp > 0
+    e.hp = hp
+    if (e.remote) {
+      if (hp <= 0 && wasAlive) {
+        effects.puff(e.remote.center, 0xc94f4f)
+        e.remote.deactivate()
+        addFeedEntry(`<b>${e.name}</b> 사망`)
+      }
+    } else if (e.bot) {
+      e.bot.applyServerHp(hp) // die() handles the puff + feed via onDied
+    }
   },
-  onPeerState: (snap) => remote.pushSnapshot(snap),
-  onPeerFire: (weaponId) => {
-    if (!remote.alive) return
-    remote.eyePosition(tmpEye)
-    tmpDir.set(
-      -Math.sin(remote.yaw) * Math.cos(remote.pitch),
-      Math.sin(remote.pitch),
-      -Math.cos(remote.yaw) * Math.cos(remote.pitch),
-    )
+  onPeerState: (id, snap) => onlineEntities.get(id)?.remote?.pushSnapshot(snap),
+  onPeerFire: (id, weaponId) => {
+    const r = onlineEntities.get(id)?.remote
+    if (!r?.alive) return
+    r.eyePosition(tmpEye)
+    tmpDir.set(-Math.sin(r.yaw) * Math.cos(r.pitch), Math.sin(r.pitch), -Math.cos(r.yaw) * Math.cos(r.pitch))
     const hit = physics.raycast(tmpEye, tmpDir, 150)
     const end = hit ? hit.point : tmpEye.clone().addScaledVector(tmpDir, 150)
     effects.tracer(tmpEye.clone().addScaledVector(tmpDir, 0.6), end)
-    const dist = player.position.distanceTo(remote.position)
+    const dist = player.position.distanceTo(r.position)
     audio.shot(weaponId, Math.max(0.15, 0.8 * (1 - dist / 70)))
   },
-  onPeerGrenade: (origin, dir) => {
+  onPeerGrenade: (_id, origin, dir) => {
     // visual-only: damage authority stays with the thrower's claims
-    projectiles.throwGrenade(
-      new THREE.Vector3(...origin),
-      new THREE.Vector3(...dir),
-      WEAPONS.grenade.range,
-      0,
-    )
-  },
-  onPeerLeft: () => {
-    addFeedEntry('상대가 나갔습니다')
-    endOnlineCleanup()
+    projectiles.throwGrenade(new THREE.Vector3(...origin), new THREE.Vector3(...dir), WEAPONS.grenade.range, 0)
   },
   onError: (reason) => {
-    setOnlineStatus(reason === 'no-room' ? '방을 찾을 수 없습니다' : '서버 오류가 발생했습니다')
+    setOnlineStatus(reason === 'no-room' ? '방을 찾을 수 없습니다 (코드/정원 확인)' : '서버 오류가 발생했습니다')
   },
-  onDisconnect: () => endOnlineCleanup(),
+  onDisconnect: (reason) => {
+    if (reason === 'peer-left') addFeedEntry('플레이어가 나가 방이 종료되었습니다')
+    endOnlineCleanup()
+  },
 })
 
 onlineCreateBtn.addEventListener('click', async () => {
@@ -504,8 +668,7 @@ onlineCreateBtn.addEventListener('click', async () => {
   audio.ensure()
   setOnlineStatus('서버 연결 중…')
   try {
-    onlineSide = 0
-    await online.create(defaultServerUrl())
+    await online.create(defaultServerUrl(), teamSize)
   } catch {
     setOnlineStatus('서버에 연결할 수 없습니다 (잠시 후 다시 시도해주세요)')
   }
@@ -518,7 +681,6 @@ onlineJoinBtn.addEventListener('click', async () => {
   audio.ensure()
   setOnlineStatus('입장 중…')
   try {
-    onlineSide = 1
     await online.join(defaultServerUrl(), code)
   } catch {
     setOnlineStatus('서버에 연결할 수 없습니다 (잠시 후 다시 시도해주세요)')
@@ -532,6 +694,7 @@ onlineGoBtn.addEventListener('click', () => {
 
 onlineCancelBtn.addEventListener('click', () => {
   online.leave()
+  teardownRoster()
   onlineStatus.classList.add('hidden')
   onlineGoBtn.classList.add('hidden')
 })
@@ -605,7 +768,17 @@ function updateHud() {
   } else if (online.active) {
     scorePlayer.textContent = String(onlineScoreYou)
     scoreBot.textContent = String(onlineScoreEnemy)
-    botHpFill.style.width = `${Math.max(0, onlineEnemyHp)}%`
+    if (onlineTeamSize === 1) {
+      botHpWrap.classList.remove('hidden')
+      aliveRow.classList.add('hidden')
+      botHpFill.style.width = `${Math.max(0, firstEnemyEntry()?.[1].hp ?? 0)}%`
+    } else {
+      botHpWrap.classList.add('hidden')
+      aliveRow.classList.remove('hidden')
+      const { allies, enemies } = onlineAliveCounts()
+      aliveAllies.textContent = '●'.repeat(allies) + '○'.repeat(Math.max(0, onlineTeamSize - allies))
+      aliveEnemies.textContent = '●'.repeat(enemies) + '○'.repeat(Math.max(0, onlineTeamSize - enemies))
+    }
   }
 }
 
@@ -936,7 +1109,7 @@ function frame(now: number) {
       const frozen = (duel.active && duel.frozen) || (online.active && online.frozen)
       if (!frozen) {
         // a dead player spectates until the team round resolves
-        const playerDead = duel.active && playerTarget.hp <= 0
+        const playerDead = (duel.active || online.active) && playerTarget.hp <= 0
         if (!playerDead) {
           player.update(PHYSICS_STEP, input)
           syncPlayerCenter() // explosions this step must see the current position
@@ -953,6 +1126,9 @@ function frame(now: number) {
             if (enemies === 0) duel.roundWon(true)
             else if (allies === 0) duel.roundWon(false)
           }
+        } else if (online.active && onlineIsHost) {
+          // the host simulates the fill bots (the server owns their HP)
+          for (const e of onlineEntities.values()) e.bot?.update(PHYSICS_STEP)
         }
         // out-of-combat regen (practice only — duel rounds reset HP instead,
         // and regen would reward stalling behind cover)
@@ -965,9 +1141,10 @@ function frame(now: number) {
     }
     if (duelWasActive && !duel.active) endDuelCleanup() // match finished
 
-    // online: stream our state ~20Hz and animate the opponent every frame
+    // online: animate remotes every frame; stream our state (and, as host,
+    // the simulated bots' states) at ~20Hz
     if (online.active) {
-      remote.update(dt)
+      for (const e of onlineEntities.values()) e.remote?.update(dt)
       onlineSendTimer += dt
       if (onlineSendTimer >= 0.05) {
         onlineSendTimer = 0
@@ -979,6 +1156,23 @@ function frame(now: number) {
           pitch: player.pitch,
           sliding: player.sliding,
         })
+        if (onlineIsHost) {
+          for (const [id, e] of onlineEntities) {
+            if (!e.bot || !e.bot.alive) continue
+            const p = e.bot.controller.position
+            online.sendState(
+              {
+                x: p.x,
+                y: p.y,
+                z: p.z,
+                yaw: e.bot.controller.yaw,
+                pitch: e.bot.controller.pitch,
+                sliding: e.bot.controller.sliding,
+              },
+              id,
+            )
+          }
+        }
       }
     }
     if (steps === MAX_STEPS_PER_FRAME) accumulator = 0
@@ -1073,15 +1267,26 @@ requestAnimationFrame(frame)
     return {
       phase: online.phase,
       code: online.code,
-      side: onlineSide,
+      side: onlineTeam,
+      teamSize: onlineTeamSize,
+      isHost: onlineIsHost,
+      youId: onlineYouId,
+      entities: [...onlineEntities.entries()].map(([id, e]) => ({
+        id,
+        team: e.team,
+        hp: e.hp,
+        kind: e.bot ? 'hostBot' : 'remote',
+        x: (e.remote?.position ?? e.bot!.controller.position).x,
+        z: (e.remote?.position ?? e.bot!.controller.position).z,
+      })),
       round: onlineRound,
       myHp: onlineMyHp,
-      enemyHp: onlineEnemyHp,
+      enemyHp: firstEnemyEntry()?.[1].hp ?? 0,
       scoreYou: onlineScoreYou,
       scoreEnemy: onlineScoreEnemy,
-      remoteVisible: remote.alive,
-      remoteX: remote.position.x,
-      remoteZ: remote.position.z,
+      remoteVisible: firstEnemyEntry()?.[1].remote?.alive ?? firstEnemyEntry()?.[1].bot?.alive ?? false,
+      remoteX: (firstEnemyEntry()?.[1].remote?.position ?? firstEnemyEntry()?.[1].bot?.controller.position)?.x ?? 0,
+      remoteZ: (firstEnemyEntry()?.[1].remote?.position ?? firstEnemyEntry()?.[1].bot?.controller.position)?.z ?? 0,
     }
   },
   get polish() {
@@ -1094,7 +1299,8 @@ requestAnimationFrame(frame)
   },
   /** Online test helper: claim damage on the opponent as if a shot landed. */
   onlineClaim(damage: number) {
-    online.sendHit('sniper', damage)
+    const entry = firstEnemyEntry()
+    if (entry) online.sendHit('sniper', damage, entry[0])
   },
   damageBot(amount: number, index = 0) {
     enemyBots[index]?.takeDamage(amount, false)

@@ -86,6 +86,13 @@ export class Bot implements Damageable {
   private currentTarget: BotTarget | null = null
   private retargetTimer = 0
 
+  /** Online host mode: HP lives on the server; local takeDamage is a no-op. */
+  serverControlledHp = false
+  /** Online host mode: shots report claims here instead of applying damage. */
+  damageSink?: (target: Damageable, damage: number, isHead: boolean, bot: Bot) => void
+  /** Online host mode: fired-shot relay (tracer/sound on other clients). */
+  onFiredRelay?: (bot: Bot) => void
+
   private sawPlayerFor = 0
   private burstLeft = 0
   private fireTimer = 0
@@ -176,16 +183,26 @@ export class Bot implements Damageable {
   }
 
   takeDamage(amount: number, _isHead: boolean): boolean {
-    if (!this.alive) return false
+    if (!this.alive || this.serverControlledHp) return false
     this.hp -= amount
     if (this.hp <= 0) {
-      this.alive = false
-      this.group.visible = false
-      this.effects.puff(this.center, 0xc94f4f)
-      this.onDied(this)
+      this.die()
       return true
     }
     return false
+  }
+
+  /** Server HP broadcast (online host mode). */
+  applyServerHp(hp: number) {
+    this.hp = hp
+    if (hp <= 0 && this.alive) this.die()
+  }
+
+  private die() {
+    this.alive = false
+    this.group.visible = false
+    this.effects.puff(this.center, 0xc94f4f)
+    this.onDied(this)
   }
 
   /** Nearest live enemy; re-evaluated periodically or when the target dies. */
@@ -336,6 +353,7 @@ export class Bot implements Damageable {
     this.burstLeft--
     this.fireTimer = 60 / this.weapon.rpm
     this.onFired?.()
+    this.onFiredRelay?.(this)
 
     // fire one bullet with difficulty-scaled error
     this.vDir.copy(this.vTargetEye).sub(this.vEye).normalize()
@@ -351,8 +369,13 @@ export class Bot implements Damageable {
     if (hit.hitbox && !isFriendly(this.team, hit.hitbox.entity)) {
       const isHead = hit.hitbox.part === 'head'
       const damage = Math.round(this.weapon.damage * (isHead ? this.weapon.headshotMult : 1))
-      const killed = hit.hitbox.entity.takeDamage(damage, isHead)
-      this.onShotHit(damage, killed)
+      if (this.damageSink) {
+        this.damageSink(hit.hitbox.entity, damage, isHead, this)
+        this.onShotHit(damage, false)
+      } else {
+        const killed = hit.hitbox.entity.takeDamage(damage, isHead)
+        this.onShotHit(damage, killed)
+      }
     }
   }
 
