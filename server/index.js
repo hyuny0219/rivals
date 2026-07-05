@@ -44,6 +44,30 @@ function send(ws, msg) {
   if (ws && ws.readyState === ws.OPEN) ws.send(JSON.stringify(msg))
 }
 
+const WORLD_LIMIT = 200
+
+function finite(v, limit = WORLD_LIMIT) {
+  const n = Number(v)
+  return Number.isFinite(n) && Math.abs(n) <= limit ? n : null
+}
+
+/** Validate a movement snapshot; returns null if any field is bogus. */
+function sanitizeState(msg) {
+  const x = finite(msg.x)
+  const y = finite(msg.y)
+  const z = finite(msg.z)
+  const yaw = finite(msg.yaw, 1000)
+  const pitch = finite(msg.pitch, 10)
+  if (x === null || y === null || z === null || yaw === null || pitch === null) return null
+  return { t: 'state', x, y, z, yaw, pitch, sliding: msg.sliding === true }
+}
+
+function sanitizeVec3(v) {
+  if (!Array.isArray(v) || v.length !== 3) return null
+  const out = [finite(v[0]), finite(v[1]), finite(v[2])]
+  return out.every((n) => n !== null) ? out : null
+}
+
 class Room {
   constructor(code) {
     this.code = code
@@ -54,6 +78,7 @@ class Room {
     this.round = 0
     this.state = 'waiting' // waiting | countdown | combat | roundEnd | matchEnd
     this.timer = null
+    this.destroyed = false
     this.claimWindow = [[], []] // timestamps of recent damage claims per side
     this.touch()
   }
@@ -84,6 +109,7 @@ class Room {
   }
 
   startRound() {
+    if (this.destroyed) return
     this.round++
     this.hp = [MAX_HP, MAX_HP]
     this.state = 'countdown'
@@ -104,6 +130,7 @@ class Room {
   }
 
   endRound(winner) {
+    if (this.destroyed) return
     clearTimeout(this.timer)
     this.score[winner]++
     if (this.score[winner] >= WIN_SCORE) {
@@ -126,6 +153,7 @@ class Room {
   }
 
   destroy(reason) {
+    this.destroyed = true
     clearTimeout(this.timer)
     this.broadcast({ t: 'roomClosed', reason })
     for (const ws of this.sockets) {
@@ -190,17 +218,30 @@ wss.on('connection', (ws) => {
         if (room.ready[0] && room.ready[1]) room.startRound()
         break
       }
-      case 'state': // movement snapshot → relay verbatim to the opponent
-      case 'fire':
+      case 'state': {
+        // movement snapshot → sanitize (finite numbers only) and relay
+        if (!room) return
+        const snap = sanitizeState(msg)
+        if (snap) send(room.sockets[ws.side ^ 1], snap)
+        break
+      }
+      case 'fire': {
+        if (!room) return
+        send(room.sockets[ws.side ^ 1], { t: 'fire', weapon: String(msg.weapon ?? '') })
+        break
+      }
       case 'grenade': {
         if (!room) return
-        send(room.sockets[ws.side ^ 1], { ...msg, side: ws.side })
+        const origin = sanitizeVec3(msg.origin)
+        const dir = sanitizeVec3(msg.dir)
+        if (origin && dir) send(room.sockets[ws.side ^ 1], { t: 'grenade', origin, dir })
         break
       }
       case 'hit': {
         if (!room || room.state !== 'combat') return
         if (!room.rateOk(ws.side)) return
-        const cap = DAMAGE_CAP[msg.weapon]
+        // own-property lookup only: 'toString' etc. must not resolve a cap
+        const cap = Object.hasOwn(DAMAGE_CAP, msg.weapon) ? DAMAGE_CAP[msg.weapon] : 0
         if (!cap) return
         const damage = Math.min(Math.max(0, Math.round(Number(msg.damage) || 0)), cap)
         if (damage <= 0) return

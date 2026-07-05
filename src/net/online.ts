@@ -59,10 +59,14 @@ export class OnlineManager {
     return new Promise((resolve, reject) => {
       const ws = new WebSocket(url)
       this.ws = ws
-      ws.onopen = () => resolve()
+      // ignore stale events if leave() replaced/cleared the socket meanwhile
+      ws.onopen = () => (this.ws === ws ? resolve() : reject(new Error('cancelled')))
       ws.onerror = () => reject(new Error('connect failed'))
-      ws.onmessage = (e) => this.handle(String(e.data))
+      ws.onmessage = (e) => {
+        if (this.ws === ws) this.handle(String(e.data))
+      }
       ws.onclose = () => {
+        if (this.ws !== ws) return
         this.ws = null
         if (this.phase !== 'idle') {
           this.phase = 'idle'
@@ -90,8 +94,9 @@ export class OnlineManager {
 
   leave() {
     this.phase = 'idle'
-    this.ws?.close()
+    const ws = this.ws
     this.ws = null
+    ws?.close()
   }
 
   sendState(snap: PeerSnapshot) {

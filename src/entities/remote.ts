@@ -27,9 +27,6 @@ export class RemotePlayer implements Damageable {
   yaw = 0
   pitch = 0
 
-  /** Called with the claimed damage when a local shot lands. */
-  onDamageClaim: (damage: number, isHead: boolean, weaponId: string) => void = () => {}
-
   private buffer: TimedSnapshot[] = []
   private clock = 0
   private sliding = false
@@ -63,10 +60,10 @@ export class RemotePlayer implements Damageable {
     world.addHitbox(this.bodyBox)
   }
 
-  takeDamage(amount: number, isHead: boolean): boolean {
-    if (!this.alive) return false
-    this.onDamageClaim(amount, isHead, '')
-    return false // the server decides kills
+  // Damage claims are reported by the combat callbacks in main.ts (which
+  // know the weapon); this entity never mutates HP — the server owns it.
+  takeDamage(): boolean {
+    return false
   }
 
   activate(position: THREE.Vector3, yaw: number) {
