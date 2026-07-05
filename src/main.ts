@@ -44,6 +44,10 @@ const botHpWrap = document.querySelector<HTMLDivElement>('#bot-hp-wrap')!
 const botHpFill = document.querySelector<HTMLSpanElement>('#bot-hp-fill')!
 const vignette = document.querySelector<HTMLDivElement>('#vignette')!
 const aliveRow = document.querySelector<HTMLDivElement>('#alive-row')!
+const scoreboard = document.querySelector<HTMLDivElement>('#scoreboard')!
+const sbScore = document.querySelector<HTMLSpanElement>('#sb-score')!
+const sbTeamA = document.querySelector<HTMLUListElement>('#sb-team-a')!
+const sbTeamB = document.querySelector<HTMLUListElement>('#sb-team-b')!
 const aliveAllies = document.querySelector<HTMLSpanElement>('#alive-allies')!
 const aliveEnemies = document.querySelector<HTMLSpanElement>('#alive-enemies')!
 const onlineCreateBtn = document.querySelector<HTMLButtonElement>('#online-create-btn')!
@@ -466,7 +470,7 @@ function setupRoster(info: RosterInfo) {
       continue
     }
     const r = remotePool[remoteIdx++]
-    r.setAppearance(p.id.toUpperCase(), p.team, p.team === onlineTeam ? ALLY_COLOR : ENEMY_COLOR)
+    r.setAppearance(p.id.toUpperCase(), p.team, p.team === onlineTeam ? ALLY_COLOR : ENEMY_COLOR, p.team === onlineTeam)
     onlineEntities.set(p.id, { team: p.team, hp: MAX_HP, spawnIdx, name: p.id.toUpperCase(), remote: r })
     idByEntity.set(r, p.id)
   }
@@ -491,7 +495,7 @@ function setupRoster(info: RosterInfo) {
       idByEntity.set(bot, b.id)
     } else {
       const r = remotePool[remoteIdx++]
-      r.setAppearance(name, b.team, b.team === onlineTeam ? ALLY_COLOR : ENEMY_COLOR)
+      r.setAppearance(name, b.team, b.team === onlineTeam ? ALLY_COLOR : ENEMY_COLOR, b.team === onlineTeam)
       onlineEntities.set(b.id, { team: b.team, hp: MAX_HP, spawnIdx, name, remote: r })
       idByEntity.set(r, b.id)
     }
@@ -699,6 +703,62 @@ onlineCancelBtn.addEventListener('click', () => {
   onlineGoBtn.classList.add('hidden')
 })
 
+// ---------- scoreboard (hold Tab on desktop, tap the pips on touch) ----------
+interface SbRow {
+  name: string
+  alive: boolean
+}
+
+function scoreboardRows(): { allies: SbRow[]; enemies: SbRow[]; score: string } | null {
+  if (duel.active) {
+    const allies: SbRow[] = [{ name: 'YOU', alive: playerTarget.hp > 0 }]
+    for (let i = 0; i < teamSize - 1; i++) allies.push({ name: allyBots[i].name, alive: allyBots[i].alive })
+    const enemies: SbRow[] = []
+    for (let i = 0; i < teamSize; i++) enemies.push({ name: enemyBots[i].name, alive: enemyBots[i].alive })
+    return { allies, enemies, score: `${duel.playerScore} : ${duel.botScore}` }
+  }
+  if (online.active && onlineEntities.size > 0) {
+    const allies: SbRow[] = [{ name: 'YOU', alive: onlineMyHp > 0 }]
+    const enemies: SbRow[] = []
+    for (const e of onlineEntities.values()) {
+      ;(e.team === onlineTeam ? allies : enemies).push({ name: e.name, alive: e.hp > 0 })
+    }
+    return { allies, enemies, score: `${onlineScoreYou} : ${onlineScoreEnemy}` }
+  }
+  return null
+}
+
+function renderScoreboard() {
+  const data = scoreboardRows()
+  if (!data) return false
+  sbScore.textContent = data.score
+  const fill = (ul: HTMLUListElement, rows: SbRow[]) => {
+    ul.innerHTML = rows
+      .map((r) => `<li class="${r.alive ? '' : 'dead'}"><span>${r.name}</span><span>${r.alive ? '생존' : '사망'}</span></li>`)
+      .join('')
+  }
+  fill(sbTeamA, data.allies)
+  fill(sbTeamB, data.enemies)
+  return true
+}
+
+function setScoreboardVisible(v: boolean) {
+  if (v && !renderScoreboard()) return
+  scoreboard.classList.toggle('hidden', !v)
+}
+
+window.addEventListener('keydown', (e) => {
+  if (e.code !== 'Tab' || e.repeat) return
+  e.preventDefault()
+  if (playing) setScoreboardVisible(true)
+})
+window.addEventListener('keyup', (e) => {
+  if (e.code === 'Tab') setScoreboardVisible(false)
+})
+aliveRow.addEventListener('click', () => {
+  setScoreboardVisible(scoreboard.classList.contains('hidden'))
+})
+
 // ---------- HUD helpers ----------
 function showHitmarker(kill: boolean) {
   hitmarker.classList.remove('show', 'kill')
@@ -745,6 +805,8 @@ function updateHud() {
 
   crosshair.style.setProperty('--gap', `${weapons.crosshairGap.toFixed(1)}px`)
   crosshair.style.display = weapons.aiming && w.id === 'sniper' ? 'none' : ''
+
+  if (!scoreboard.classList.contains('hidden')) renderScoreboard()
 
   // the zoom button is sniper-only (AR keeps right-click ADS on desktop)
   const hasZoom = w.id === 'sniper'
@@ -841,6 +903,7 @@ function setPlaying(p: boolean) {
   menu.classList.toggle('hidden', p)
   hud.classList.toggle('hidden', !p)
   document.body.classList.toggle('playing', p) // gates the rotate overlay
+  scoreboard.classList.add('hidden')
   if (touchMode && !p) {
     // back to the menu: release the landscape lock so portrait works again
     try {

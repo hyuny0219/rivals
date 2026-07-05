@@ -112,6 +112,12 @@ export function buildMap(world: PhysicsWorld): GameMap {
   mirrored(5, 0, -13, 3.2, 2.4, 2.2, PALETTE.crateB)
   mirrored(5, 0, 13, 3.2, 2.4, 2.2, PALETTE.crateA)
 
+  // extra cover in the open lanes so 8-player team fights have footholds
+  mirrored(24, 0, -6, 2.2, 1.3, 2.2, PALETTE.crateB)
+  mirrored(24, 0, 6, 2.2, 1.3, 2.2, PALETTE.crateA)
+  mirrored(11, 0, 11, 2.2, 1.3, 2.2, PALETTE.crateA)
+  mirrored(11, 0, -11, 2.2, 1.3, 2.2, PALETTE.crateB)
+
   // side platforms along both z-edges with stairs (step-up handles 0.4m steps)
   const PLAT_H = 2.4
   for (const side of [-1, 1]) {

@@ -4,6 +4,7 @@ import { Damageable, Hitbox, PhysicsWorld, isFriendly } from '../world/physics'
 import { Effects } from '../combat/effects'
 import { WEAPONS } from '../combat/weapons'
 import { createRng } from '../combat/rng'
+import { makeNameplate } from '../render/nameplate'
 
 export type Difficulty = 'easy' | 'normal' | 'hard'
 
@@ -144,6 +145,8 @@ export class Bot implements Damageable {
       m.receiveShadow = true
       this.group.add(m)
     }
+    // team 0 = the local player's side: ally plates show through walls
+    this.group.add(makeNameplate(this.name, this.team === 0 ? '#57d38c' : '#ff8a75', this.team === 0))
 
     this.headBox = { entity: this, part: 'head', box: new THREE.Box3() }
     this.bodyBox = { entity: this, part: 'body', box: new THREE.Box3() }
