@@ -2,6 +2,8 @@ export type DuelState = 'idle' | 'countdown' | 'combat' | 'roundEnd' | 'matchEnd
 
 const WIN_SCORE = 5
 const COUNTDOWN_SECONDS = 3
+/** Round 1 gets extra time for the in-game loadout pick. */
+const FIRST_COUNTDOWN_SECONDS = 8
 const ROUND_END_SECONDS = 2.2
 const MATCH_END_SECONDS = 4
 
@@ -46,7 +48,7 @@ export class DuelManager {
   private startRound() {
     this.round++
     this.state = 'countdown'
-    this.timer = COUNTDOWN_SECONDS
+    this.timer = this.round === 1 ? FIRST_COUNTDOWN_SECONDS : COUNTDOWN_SECONDS
     this.lastCount = -1
     this.cb.onRoundStart(this.round)
   }
@@ -88,7 +90,7 @@ export class DuelManager {
     if (this.state === 'countdown') {
       this.timer -= dt
       const count = Math.ceil(this.timer)
-      if (count !== this.lastCount && count > 0) {
+      if (count !== this.lastCount && count > 0 && count <= 3) {
         this.lastCount = count
         this.cb.onBanner(String(count), `라운드 ${this.round}`, 0.95)
       }

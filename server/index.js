@@ -11,6 +11,7 @@ import { WebSocketServer } from 'ws'
 const PORT = Number(process.env.PORT) || 8081
 const WIN_SCORE = 5
 const COUNTDOWN_MS = 3000
+const FIRST_COUNTDOWN_MS = 8000 // round 1 includes the loadout pick
 const ROUND_END_MS = 2200
 const MATCH_END_MS = 4000
 const MAX_HP = 100
@@ -114,10 +115,13 @@ class Room {
     this.hp = [MAX_HP, MAX_HP]
     this.state = 'countdown'
     this.sendPhase()
-    this.timer = setTimeout(() => {
-      this.state = 'combat'
-      this.sendPhase()
-    }, COUNTDOWN_MS)
+    this.timer = setTimeout(
+      () => {
+        this.state = 'combat'
+        this.sendPhase()
+      },
+      this.round === 1 ? FIRST_COUNTDOWN_MS : COUNTDOWN_MS,
+    )
   }
 
   applyDamage(targetSide, damage, killerSide) {

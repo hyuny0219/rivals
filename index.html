@@ -34,6 +34,22 @@
 
       <div id="killfeed"></div>
 
+      <div id="loadout-panel" class="hidden">
+        <h3>로드아웃 선택</h3>
+        <div class="lp-group">
+          <span class="lp-label">주무기</span>
+          <button class="lp-btn primary-btn active" data-id="ar"><i>1</i>돌격소총</button>
+          <button class="lp-btn primary-btn" data-id="shotgun"><i>2</i>샷건</button>
+          <button class="lp-btn primary-btn" data-id="sniper"><i>3</i>저격총</button>
+        </div>
+        <div class="lp-group">
+          <span class="lp-label">보조무기</span>
+          <button class="lp-btn secondary-btn active" data-id="pistol"><i>4</i>권총</button>
+          <button class="lp-btn secondary-btn" data-id="uzi"><i>5</i>우지</button>
+        </div>
+        <p id="loadout-hint">숫자 키 또는 탭으로 선택</p>
+      </div>
+
       <div id="score-wrap" class="hidden">
         <span class="score-name">YOU</span>
         <span id="score-player">0</span>
@@ -131,19 +147,6 @@
           </div>
         </details>
 
-        <div id="loadout-row">
-          <div class="loadout-group">
-            <span class="row-label">주무기</span>
-            <button class="loadout-btn primary-btn active" data-id="ar">돌격소총</button>
-            <button class="loadout-btn primary-btn" data-id="shotgun">샷건</button>
-            <button class="loadout-btn primary-btn" data-id="sniper">저격총</button>
-          </div>
-          <div class="loadout-group">
-            <span class="row-label">보조무기</span>
-            <button class="loadout-btn secondary-btn active" data-id="pistol">권총</button>
-            <button class="loadout-btn secondary-btn" data-id="uzi">우지</button>
-          </div>
-        </div>
         <div class="controls">
           <span class="desktop-help"
             ><b>WASD</b> 이동 · <b>Space</b> 점프 · <b>Shift</b> 대시 · <b>C</b> 슬라이드 · <b>클릭</b> 발사 ·
