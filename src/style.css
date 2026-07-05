@@ -1081,8 +1081,8 @@ body {
 
 .sb-cols li {
   display: flex;
-  justify-content: space-between;
-  gap: 14px;
+  align-items: center;
+  gap: 10px;
   padding: 3px 0;
   font-size: 14px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.06);
@@ -1090,7 +1090,109 @@ body {
 
 .sb-cols li.dead {
   color: #6b7684;
-  text-decoration: line-through;
+  opacity: 0.6;
+}
+
+.sb-nm {
+  flex: 1;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 130px;
+}
+
+.sb-k,
+.sb-d {
+  width: 24px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.sb-k {
+  color: #8fe0b0;
+}
+
+.sb-d {
+  color: #ff9a8a;
+}
+
+.sb-hd {
+  font-size: 10px;
+  color: #8494a8;
+  letter-spacing: 1px;
+  margin-left: 6px;
+  font-weight: 600;
+}
+
+/* kill feed: killer → victim with team colors */
+.feed-entry .kf-you {
+  color: #ffd24a;
+  font-weight: 800;
+}
+.feed-entry .kf-ally {
+  color: #57d38c;
+  font-weight: 700;
+}
+.feed-entry .kf-enemy {
+  color: #ff5a3c;
+  font-weight: 700;
+}
+.feed-entry .kf-wep {
+  margin: 0 2px;
+}
+.feed-entry .kf-hs {
+  color: #ffd24a;
+}
+
+/* end-of-match summary board */
+#matchboard {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  min-width: 420px;
+  background: rgba(8, 12, 20, 0.92);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 14px;
+  padding: 20px 28px 24px;
+  color: #eef2f7;
+  text-align: center;
+  z-index: 8;
+}
+
+#matchboard.hidden {
+  display: none;
+}
+
+#matchboard h2 {
+  font-size: 30px;
+  font-weight: 900;
+  letter-spacing: 2px;
+  margin-bottom: 6px;
+}
+
+#matchboard h2.win {
+  color: #57d38c;
+}
+#matchboard h2.lose {
+  color: #ff5a3c;
+}
+#matchboard h2.draw {
+  color: #cdd8e4;
+}
+
+#mb-mvp {
+  font-size: 14px;
+  color: #cdd8e4;
+  margin-bottom: 14px;
+}
+#mb-mvp b {
+  color: #fff;
+}
+#mb-mvp .mb-lbl {
+  color: #8494a8;
+  font-size: 12px;
 }
 
 /* kill feed (top-right) */

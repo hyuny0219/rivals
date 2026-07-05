@@ -48,6 +48,11 @@ const scoreboard = document.querySelector<HTMLDivElement>('#scoreboard')!
 const sbScore = document.querySelector<HTMLSpanElement>('#sb-score')!
 const sbTeamA = document.querySelector<HTMLUListElement>('#sb-team-a')!
 const sbTeamB = document.querySelector<HTMLUListElement>('#sb-team-b')!
+const matchboard = document.querySelector<HTMLDivElement>('#matchboard')!
+const mbTitle = document.querySelector<HTMLHeadingElement>('#mb-title')!
+const mbMvp = document.querySelector<HTMLDivElement>('#mb-mvp')!
+const mbTeamA = document.querySelector<HTMLUListElement>('#mb-team-a')!
+const mbTeamB = document.querySelector<HTMLUListElement>('#mb-team-b')!
 const aliveAllies = document.querySelector<HTMLSpanElement>('#alive-allies')!
 const aliveEnemies = document.querySelector<HTMLSpanElement>('#alive-enemies')!
 const onlineCreateBtn = document.querySelector<HTMLButtonElement>('#online-create-btn')!
@@ -182,6 +187,7 @@ const playerTarget: PlayerTarget = {
     damageFlash = Math.min(1, damageFlash + amount / 50)
     if (playerTarget.hp <= 0) {
       if (duel.active) {
+        stat('YOU').d++
         addFeedEntry('<b>YOU</b> 사망')
         // the round continues while teammates are alive; the wipe check
         // in the game loop decides the round
@@ -264,6 +270,8 @@ const projectiles = new ProjectileManager(
       if (online.active) {
         const id = idByEntity.get(target)
         if (id) online.sendHit('grenade', damage, id)
+      } else if (duel.active && killed) {
+        stat('YOU').k++
       }
     }
   },
@@ -282,7 +290,9 @@ const weapons = new WeaponController(
     effects.damageNumber(info.target.center, info.damage, info.isHead)
     if (online.active) {
       const id = idByEntity.get(info.target)
-      if (id) online.sendHit(weapons.weapon.id, info.damage, id)
+      if (id) online.sendHit(weapons.weapon.id, info.damage, id, undefined, info.isHead)
+    } else if (duel.active && info.killed) {
+      stat('YOU').k++ // local duel: credit the player's kill (bot deaths tracked in onDied)
     }
   },
   audio,
@@ -312,7 +322,11 @@ function makeBot(name: string, team: number, color: number, seed: number, getEne
     () => {
       /* target HP HUD reflects damage already */
     },
-    (dead) => addFeedEntry(`<b>${dead.name}</b> 사망`),
+    (dead) => {
+      if (online.active) return // online: the kill feed reports deaths
+      if (duel.active) stat(dead.name).d++
+      addFeedEntry(`<b>${dead.name}</b> 사망`)
+    },
     () => {
       // gunshot attenuated by distance to the listener
       const dist = player.position.distanceTo(b.controller.position)
@@ -399,13 +413,14 @@ const duel = new DuelManager({
     else if (text === '라운드 승리!') audio.roundWin()
     else if (text === '라운드 패배') audio.roundLose()
   },
-  onMatchEnd: () => {
-    /* the manager returns to idle after its timer; cleanup happens below */
+  onMatchEnd: (playerWon) => {
+    showMatchBoard(playerWon ? 'win' : 'lose')
   },
 })
 
 function endDuelCleanup() {
   hideLoadoutPanel()
+  hideMatchBoard()
   for (const b of allyBots) b.deactivate()
   for (const b of enemyBots) b.deactivate()
   aliveRow.classList.add('hidden')
@@ -424,6 +439,7 @@ function beginDuel() {
   loadMap(resolveMapId()) // pick the arena for this match
   for (const d of dummies) d.setEnabled(false)
   weapons.allowCycling = false // duel loadout is locked
+  matchStats.clear()
   duel.startMatch()
   scoreWrap.classList.remove('hidden')
   botHpWrap.classList.remove('hidden')
@@ -505,6 +521,7 @@ function setupRoster(info: RosterInfo) {
   loadMap(info.mapId) // server-chosen arena, identical for everyone
   onlineYouId = info.you
   onlineTeamSize = info.teamSize
+  applyServerStats(info.stats)
   onlineDifficulty = (info.difficulty as Difficulty) ?? 'normal'
   onlineIsHost = info.you === info.hostId
   onlineTeam = info.players.find((p) => p.id === info.you)?.team ?? 0
@@ -535,10 +552,10 @@ function setupRoster(info: RosterInfo) {
       // pool since the host/creator is always team 0) and relays its state
       const bot = b.team === 0 ? allyBots[poolIdx[0]++] : enemyBots[poolIdx[1]++]
       bot.serverControlledHp = true
-      bot.damageSink = (target, damage, _isHead, botRef) => {
+      bot.damageSink = (target, damage, isHead, botRef) => {
         const targetId = idByEntity.get(target)
         const attackerId = idByEntity.get(botRef)
-        if (targetId && attackerId) online.sendHit('ar', damage, targetId, attackerId)
+        if (targetId && attackerId) online.sendHit('ar', damage, targetId, attackerId, isHead)
       }
       bot.onFiredRelay = (botRef) => {
         const attackerId = idByEntity.get(botRef)
@@ -592,6 +609,7 @@ function handleOnlineRound(info: RoundInfo) {
   onlineScoreEnemy = info.scoreEnemy
   onlineMyHp = info.hps[onlineYouId] ?? MAX_HP
   playerTarget.hp = onlineMyHp
+  applyServerStats(info.stats)
   clearOnlineTimers()
 
   if (info.phase === 'countdown') {
@@ -645,11 +663,13 @@ function handleOnlineRound(info: RoundInfo) {
     showBanner(info.youWon ? '승리!' : '패배', `${info.scoreYou} : ${info.scoreEnemy}`, 3.5)
     if (info.youWon) audio.win()
     else audio.lose()
+    showMatchBoard(info.youWon ? 'win' : 'lose')
   }
 }
 
 function endOnlineCleanup() {
   hideLoadoutPanel()
+  hideMatchBoard()
   clearOnlineTimers()
   online.leave()
   teardownRoster()
@@ -689,6 +709,63 @@ function renderLobby(info: LobbyInfo) {
   )
 }
 
+// ---------- kill feed + K/D tallies ----------
+interface KDLabel {
+  name: string
+  team: number
+  you: boolean
+}
+// per-match kills/deaths keyed by online entity id (or 'YOU'/bot name locally)
+const matchStats = new Map<string, { k: number; d: number }>()
+function stat(key: string) {
+  let s = matchStats.get(key)
+  if (!s) {
+    s = { k: 0, d: 0 }
+    matchStats.set(key, s)
+  }
+  return s
+}
+/** Overwrite tallies with the server's authoritative snapshot (seed/correct). */
+function applyServerStats(stats?: Record<string, { k: number; d: number }>) {
+  if (!stats) return
+  matchStats.clear()
+  for (const id of Object.keys(stats)) matchStats.set(id, { k: stats[id].k, d: stats[id].d })
+}
+
+function onlineLabel(id: string): KDLabel {
+  if (id === onlineYouId) return { name: 'YOU', team: onlineTeam, you: true }
+  const e = onlineEntities.get(id)
+  return e ? { name: e.name, team: e.team, you: false } : { name: id, team: -1, you: false }
+}
+
+const WEAPON_ICON: Record<string, string> = { grenade: '💣', knife: '🔪' }
+function weaponIcon(weapon: string): string {
+  return WEAPON_ICON[weapon] ?? '🔫'
+}
+
+/** Team-relative color class for a killfeed name. */
+function kfClass(l: KDLabel): string {
+  if (l.you) return 'kf-you'
+  const myTeam = online.active ? onlineTeam : 0
+  return l.team === myTeam ? 'kf-ally' : 'kf-enemy'
+}
+
+/** Render one "killer → victim" row (suicide shows just the victim). */
+function addKillFeed(by: KDLabel, victim: KDLabel, weapon: string, head: boolean) {
+  const icon = weaponIcon(weapon)
+  let html: string
+  if (by.name === victim.name && by.team === victim.team) {
+    html = `<span class="${kfClass(victim)}">${escapeHtml(victim.name)}</span> <span class="kf-wep">💥</span> 자폭`
+  } else {
+    html =
+      `<span class="${kfClass(by)}">${escapeHtml(by.name)}</span>` +
+      ` <span class="kf-wep">${icon}</span> ` +
+      `<span class="${kfClass(victim)}">${escapeHtml(victim.name)}</span>` +
+      (head ? ' <span class="kf-hs">☠</span>' : '')
+  }
+  addFeedEntry(html)
+}
+
 const online = new OnlineManager({
   onCreated: (code) => {
     lobbyEl.classList.add('hidden') // hide the browser while in a room
@@ -711,7 +788,7 @@ const online = new OnlineManager({
       onlineMyHp = hp
       playerTarget.hp = hp
       if (hp <= 0 && wasAlive) {
-        addFeedEntry('<b>YOU</b> 사망')
+        // the kill feed (server 'kill' event) already reports who killed you
         const { allies } = onlineAliveCounts()
         if (allies > 0) showBanner('사망', '아군의 승리를 기다리는 중…', 2.5)
       }
@@ -722,10 +799,11 @@ const online = new OnlineManager({
     const wasAlive = e.hp > 0
     e.hp = hp
     if (e.remote) {
+      e.remote.setHealth(hp / MAX_HP)
       if (hp <= 0 && wasAlive) {
         effects.puff(e.remote.center, 0xc94f4f)
         e.remote.deactivate()
-        addFeedEntry(`<b>${e.name}</b> 사망`)
+        // kill feed reports the death with attacker attribution
       }
     } else if (e.bot) {
       e.bot.applyServerHp(hp) // die() handles the puff + feed via onDied
@@ -748,6 +826,11 @@ const online = new OnlineManager({
     projectiles.throwGrenade(new THREE.Vector3(...origin), new THREE.Vector3(...dir), WEAPONS.grenade.range, 0)
   },
   onRoomList: (rooms) => renderRooms(rooms),
+  onKill: (info) => {
+    if (info.by !== info.victim) stat(info.by).k++
+    stat(info.victim).d++
+    addKillFeed(onlineLabel(info.by), onlineLabel(info.victim), info.weapon, info.head === true)
+  },
   onError: (reason) => {
     setOnlineStatus(reason === 'no-room' ? '방을 찾을 수 없습니다 (코드/정원 확인)' : '서버 오류가 발생했습니다')
   },
@@ -935,21 +1018,33 @@ if (savedNick) {
 interface SbRow {
   name: string
   alive: boolean
+  k: number
+  d: number
+}
+
+function kd(key: string): { k: number; d: number } {
+  return matchStats.get(key) ?? { k: 0, d: 0 }
 }
 
 function scoreboardRows(): { allies: SbRow[]; enemies: SbRow[]; score: string } | null {
   if (duel.active) {
-    const allies: SbRow[] = [{ name: 'YOU', alive: playerTarget.hp > 0 }]
-    for (let i = 0; i < teamSize - 1; i++) allies.push({ name: allyBots[i].name, alive: allyBots[i].alive })
+    const you = kd('YOU')
+    const allies: SbRow[] = [{ name: 'YOU', alive: playerTarget.hp > 0, k: you.k, d: you.d }]
+    for (let i = 0; i < teamSize - 1; i++) {
+      allies.push({ name: allyBots[i].name, alive: allyBots[i].alive, ...kd(allyBots[i].name) })
+    }
     const enemies: SbRow[] = []
-    for (let i = 0; i < teamSize; i++) enemies.push({ name: enemyBots[i].name, alive: enemyBots[i].alive })
+    for (let i = 0; i < teamSize; i++) {
+      enemies.push({ name: enemyBots[i].name, alive: enemyBots[i].alive, ...kd(enemyBots[i].name) })
+    }
     return { allies, enemies, score: `${duel.playerScore} : ${duel.botScore}` }
   }
   if (online.active && onlineEntities.size > 0) {
-    const allies: SbRow[] = [{ name: 'YOU', alive: onlineMyHp > 0 }]
+    const you = kd(onlineYouId)
+    const allies: SbRow[] = [{ name: 'YOU', alive: onlineMyHp > 0, k: you.k, d: you.d }]
     const enemies: SbRow[] = []
-    for (const e of onlineEntities.values()) {
-      ;(e.team === onlineTeam ? allies : enemies).push({ name: e.name, alive: e.hp > 0 })
+    for (const [id, e] of onlineEntities) {
+      ;(e.team === onlineTeam ? allies : enemies).push({ name: e.name, alive: e.hp > 0, ...kd(id) })
     }
     return { allies, enemies, score: `${onlineScoreYou} : ${onlineScoreEnemy}` }
   }
@@ -962,7 +1057,11 @@ function renderScoreboard() {
   sbScore.textContent = data.score
   const fill = (ul: HTMLUListElement, rows: SbRow[]) => {
     ul.innerHTML = rows
-      .map((r) => `<li class="${r.alive ? '' : 'dead'}"><span>${r.name}</span><span>${r.alive ? '생존' : '사망'}</span></li>`)
+      .map(
+        (r) =>
+          `<li class="${r.alive ? '' : 'dead'}"><span class="sb-nm">${escapeHtml(r.name)}</span>` +
+          `<span class="sb-k">${r.k}</span><span class="sb-d">${r.d}</span></li>`,
+      )
       .join('')
   }
   fill(sbTeamA, data.allies)
@@ -973,6 +1072,39 @@ function renderScoreboard() {
 function setScoreboardVisible(v: boolean) {
   if (v && !renderScoreboard()) return
   scoreboard.classList.toggle('hidden', !v)
+}
+
+function fillKdList(ul: HTMLUListElement, rows: SbRow[]) {
+  ul.innerHTML = rows
+    .map(
+      (r) =>
+        `<li class="${r.alive ? '' : 'dead'}"><span class="sb-nm">${escapeHtml(r.name)}</span>` +
+        `<span class="sb-k">${r.k}</span><span class="sb-d">${r.d}</span></li>`,
+    )
+    .join('')
+}
+
+/** End-of-match summary: winner banner, MVP (most kills), most deaths, K/D. */
+function showMatchBoard(result: 'win' | 'lose' | 'draw') {
+  const data = scoreboardRows()
+  if (!data) return
+  mbTitle.textContent = result === 'win' ? '승리!' : result === 'draw' ? '무승부' : '패배'
+  mbTitle.className = result
+  const all = [...data.allies, ...data.enemies]
+  if (all.length) {
+    const mvp = all.reduce((a, b) => (b.k > a.k ? b : a))
+    const feeder = all.reduce((a, b) => (b.d > a.d ? b : a))
+    mbMvp.innerHTML =
+      `🏆 <span class="mb-lbl">MVP</span> <b>${escapeHtml(mvp.name)}</b> · ${mvp.k}킬` +
+      ` &nbsp; 💀 <span class="mb-lbl">최다 사망</span> <b>${escapeHtml(feeder.name)}</b> · ${feeder.d}데스`
+  }
+  fillKdList(mbTeamA, data.allies)
+  fillKdList(mbTeamB, data.enemies)
+  matchboard.classList.remove('hidden')
+}
+
+function hideMatchBoard() {
+  matchboard.classList.add('hidden')
 }
 
 window.addEventListener('keydown', (e) => {

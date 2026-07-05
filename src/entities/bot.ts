@@ -4,7 +4,7 @@ import { Damageable, Hitbox, PhysicsWorld, isFriendly } from '../world/physics'
 import { Effects } from '../combat/effects'
 import { WEAPONS } from '../combat/weapons'
 import { createRng } from '../combat/rng'
-import { makeNameplate } from '../render/nameplate'
+import { makeNameplate, makeHealthbar, Healthbar } from '../render/nameplate'
 
 export type Difficulty = 'easy' | 'normal' | 'hard'
 
@@ -108,6 +108,7 @@ export class Bot implements Damageable {
 
   private headBox: Hitbox
   private bodyBox: Hitbox
+  private hpbar: Healthbar
 
   // scratch
   private vEye = new THREE.Vector3()
@@ -146,7 +147,10 @@ export class Bot implements Damageable {
       this.group.add(m)
     }
     // team 0 = the local player's side: ally plates show through walls
-    this.group.add(makeNameplate(this.name, this.team === 0 ? '#57d38c' : '#ff8a75', this.team === 0))
+    const isAlly = this.team === 0
+    this.group.add(makeNameplate(this.name, isAlly ? '#57d38c' : '#ff8a75', isAlly))
+    this.hpbar = makeHealthbar(isAlly ? 0x57d38c : 0xff5a3c, isAlly)
+    this.group.add(this.hpbar.group)
 
     this.headBox = { entity: this, part: 'head', box: new THREE.Box3() }
     this.bodyBox = { entity: this, part: 'body', box: new THREE.Box3() }
@@ -168,6 +172,7 @@ export class Bot implements Damageable {
     this.hp = MAX_HP
     this.alive = true
     this.group.visible = true
+    this.hpbar.setHealth(1)
     this.sawPlayerFor = 0
     this.burstLeft = 0
     this.fireTimer = 0
@@ -188,6 +193,7 @@ export class Bot implements Damageable {
   takeDamage(amount: number, _isHead: boolean): boolean {
     if (!this.alive || this.serverControlledHp) return false
     this.hp -= amount
+    this.hpbar.setHealth(this.hp / MAX_HP)
     if (this.hp <= 0) {
       this.die()
       return true
@@ -198,6 +204,7 @@ export class Bot implements Damageable {
   /** Server HP broadcast (online host mode). */
   applyServerHp(hp: number) {
     this.hp = hp
+    this.hpbar.setHealth(hp / MAX_HP)
     if (hp <= 0 && this.alive) this.die()
   }
 

@@ -69,8 +69,29 @@
       <div id="scoreboard" class="hidden">
         <h3>스코어보드 <span id="sb-score"></span></h3>
         <div class="sb-cols">
-          <div><h4 class="sb-ally">아군</h4><ul id="sb-team-a"></ul></div>
-          <div><h4 class="sb-enemy">상대</h4><ul id="sb-team-b"></ul></div>
+          <div>
+            <h4 class="sb-ally">아군 <span class="sb-hd">K&nbsp;&nbsp;D</span></h4>
+            <ul id="sb-team-a"></ul>
+          </div>
+          <div>
+            <h4 class="sb-enemy">상대 <span class="sb-hd">K&nbsp;&nbsp;D</span></h4>
+            <ul id="sb-team-b"></ul>
+          </div>
+        </div>
+      </div>
+
+      <div id="matchboard" class="hidden">
+        <h2 id="mb-title"></h2>
+        <div id="mb-mvp"></div>
+        <div class="sb-cols">
+          <div>
+            <h4 class="sb-ally">아군 <span class="sb-hd">K&nbsp;&nbsp;D</span></h4>
+            <ul id="mb-team-a"></ul>
+          </div>
+          <div>
+            <h4 class="sb-enemy">상대 <span class="sb-hd">K&nbsp;&nbsp;D</span></h4>
+            <ul id="mb-team-b"></ul>
+          </div>
         </div>
       </div>
 
@@ -78,12 +99,12 @@
       <div id="touch-move-zone" class="touch-zone"></div>
       <div id="touch-look-zone" class="touch-zone"></div>
       <div id="joy-base"><div id="joy-knob"></div></div>
-      <button id="btn-jump" class="touch-btn">점프</button>
-      <button id="btn-dash" class="touch-btn">대시</button>
-      <button id="btn-slide" class="touch-btn">슬라이드</button>
-      <button id="btn-fire" class="touch-btn">발사</button>
-      <button id="btn-ads" class="touch-btn">줌</button>
-      <button id="btn-reload" class="touch-btn">장전</button>
+      <button id="btn-jump" class="touch-btn" aria-label="점프">⤒</button>
+      <button id="btn-dash" class="touch-btn" aria-label="대시">🏃</button>
+      <button id="btn-slide" class="touch-btn" aria-label="슬라이드">🛷</button>
+      <button id="btn-fire" class="touch-btn" aria-label="발사">🔫</button>
+      <button id="btn-ads" class="touch-btn" aria-label="줌">🔭</button>
+      <button id="btn-reload" class="touch-btn" aria-label="장전">🔄</button>
       <div id="touch-slots">
         <button class="touch-btn slot-btn" data-key="Digit1">1</button>
         <button class="touch-btn slot-btn" data-key="Digit2">2</button>

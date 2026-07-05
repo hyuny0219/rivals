@@ -222,8 +222,8 @@ class Room {
       }
     }
     this.entities.clear()
-    for (const p of this.players) this.entities.set(p.id, { team: p.team, hp: MAX_HP, isBot: false })
-    for (const b of this.bots) this.entities.set(b.id, { team: b.team, hp: MAX_HP, isBot: true })
+    for (const p of this.players) this.entities.set(p.id, { team: p.team, hp: MAX_HP, isBot: false, kills: 0, deaths: 0 })
+    for (const b of this.bots) this.entities.set(b.id, { team: b.team, hp: MAX_HP, isBot: true, kills: 0, deaths: 0 })
 
     for (const p of this.players) if (p.conn) p.conn.send(this.rosterMsg(p))
     this.startRound()
@@ -240,12 +240,20 @@ class Room {
       token: p.token,
       players: this.players.map((q) => ({ id: q.id, team: q.team, nick: q.nick })),
       bots: this.bots.map((b) => ({ id: b.id, team: b.team })),
+      stats: this.statsSnapshot(),
     }
   }
 
   hpSnapshot() {
     const out = {}
     for (const [id, e] of this.entities) out[id] = e.hp
+    return out
+  }
+
+  /** Per-entity kills/deaths for the scoreboard + match-end board. */
+  statsSnapshot() {
+    const out = {}
+    for (const [id, e] of this.entities) out[id] = { k: e.kills || 0, d: e.deaths || 0 }
     return out
   }
 
@@ -257,6 +265,7 @@ class Room {
       scoreYou: this.score[p.team],
       scoreEnemy: this.score[p.team ^ 1],
       hps: this.hpSnapshot(),
+      stats: this.statsSnapshot(),
       ...('winner' in extra ? { youWon: extra.winner === p.team } : {}),
       ...(extra.draw ? { draw: true } : {}),
     }
@@ -326,7 +335,13 @@ class Room {
 
     target.hp = Math.max(0, target.hp - damage)
     this.broadcast({ t: 'hp', id: String(msg.target), hp: target.hp })
-    if (target.hp <= 0) this.checkWipe()
+    if (target.hp <= 0) {
+      const victimId = String(msg.target)
+      target.deaths = (target.deaths || 0) + 1
+      if (attackerId !== victimId) attacker.kills = (attacker.kills || 0) + 1 // no self-credit
+      this.broadcast({ t: 'kill', by: attackerId, victim: victimId, weapon, head: msg.head === true })
+      this.checkWipe()
+    }
   }
 
   checkWipe() {

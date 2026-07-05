@@ -1,7 +1,7 @@
 import * as THREE from 'three'
 import { Damageable, Hitbox, PhysicsWorld } from '../world/physics'
 import { PeerSnapshot } from '../net/online'
-import { makeNameplate, disposeNameplate } from '../render/nameplate'
+import { makeNameplate, disposeNameplate, makeHealthbar, Healthbar } from '../render/nameplate'
 
 const HEAD = { w: 0.4, h: 0.4 }
 const TORSO = { w: 0.8, h: 0.85, d: 0.42 }
@@ -72,6 +72,7 @@ export class RemotePlayer implements Damageable {
   }
 
   private plate: THREE.Sprite | null = null
+  private hpbar: Healthbar | null = null
 
   setAppearance(name: string, team: number, color: number, isAlly: boolean) {
     this.name = name
@@ -83,11 +84,23 @@ export class RemotePlayer implements Damageable {
     }
     this.plate = makeNameplate(name, isAlly ? '#57d38c' : '#ff8a75', isAlly)
     this.group.add(this.plate)
+    if (this.hpbar) {
+      this.group.remove(this.hpbar.group)
+      this.hpbar.dispose()
+    }
+    this.hpbar = makeHealthbar(isAlly ? 0x57d38c : 0xff5a3c, isAlly)
+    this.group.add(this.hpbar.group)
+  }
+
+  /** Reflect the server-authoritative HP fraction on the head bar. */
+  setHealth(frac: number) {
+    this.hpbar?.setHealth(frac)
   }
 
   activate(position: THREE.Vector3, yaw: number) {
     this.alive = true
     this.group.visible = true
+    this.hpbar?.setHealth(1)
     this.buffer.length = 0
     this.clock = 0
     this.position.copy(position)
