@@ -95,6 +95,21 @@ export class PhysicsWorld {
     return true
   }
 
+  /** Deepest penetration (least-axis overlap) of `box` into any collider; ~0
+   * if merely touching or clear. Detects players wedged inside geometry. */
+  penetration(box: THREE.Box3): number {
+    let worst = 0
+    for (const c of this.colliders) {
+      if (!c.intersectsBox(box)) continue
+      const dx = Math.min(box.max.x, c.max.x) - Math.max(box.min.x, c.min.x)
+      const dy = Math.min(box.max.y, c.max.y) - Math.max(box.min.y, c.min.y)
+      const dz = Math.min(box.max.z, c.max.z) - Math.max(box.min.z, c.min.z)
+      const d = Math.min(dx, dy, dz)
+      if (d > worst) worst = d
+    }
+    return worst
+  }
+
   private vCenter = new THREE.Vector3()
 
   /**

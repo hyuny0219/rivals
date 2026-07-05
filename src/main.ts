@@ -260,6 +260,7 @@ const projectiles = new ProjectileManager(
     if (target !== playerTarget) {
       showHitmarker(killed)
       audio.hit(killed)
+      effects.damageNumber(target.center, damage, false)
       if (online.active) {
         const id = idByEntity.get(target)
         if (id) online.sendHit('grenade', damage, id)
@@ -278,6 +279,7 @@ const weapons = new WeaponController(
   (info) => {
     showHitmarker(info.killed && info.isHead ? true : info.killed)
     audio.hit(info.killed)
+    effects.damageNumber(info.target.center, info.damage, info.isHead)
     if (online.active) {
       const id = idByEntity.get(info.target)
       if (id) online.sendHit(weapons.weapon.id, info.damage, id)
@@ -1633,6 +1635,24 @@ requestAnimationFrame(frame)
   },
   get aimUi() {
     return { scopeShown: !scope.classList.contains('hidden'), aiming: weapons.aiming, weapon: weapons.weapon.id }
+  },
+  /** Test helper: count live floating-damage sprites in the scene. */
+  get sprites() {
+    let n = 0
+    scene.traverse((o) => {
+      if ((o as THREE.Sprite).isSprite) n++
+    })
+    return n
+  },
+  /** Test helper: how deep the player's collision box is wedged into geometry. */
+  probe() {
+    const p = player.position
+    const h = player.sliding ? 0.95 : 1.8
+    const box = new THREE.Box3(
+      new THREE.Vector3(p.x - 0.4, p.y, p.z - 0.4),
+      new THREE.Vector3(p.x + 0.4, p.y + h, p.z + 0.4),
+    )
+    return { pen: physics.penetration(box), x: p.x, y: p.y, z: p.z, grounded: player.grounded }
   },
   damageBot(amount: number, index = 0) {
     enemyBots[index]?.takeDamage(amount, false)
