@@ -528,6 +528,11 @@ function updateHud() {
   crosshair.style.setProperty('--gap', `${weapons.crosshairGap.toFixed(1)}px`)
   crosshair.style.display = weapons.aiming && w.id === 'sniper' ? 'none' : ''
 
+  // the zoom button only makes sense for ADS-capable weapons
+  const hasAds = w.adsFov > 0
+  btnAds.classList.toggle('hidden', !hasAds)
+  if (!hasAds && adsToggled) setAdsToggle(false)
+
   if (duel.active) {
     scorePlayer.textContent = String(duel.playerScore)
     scoreBot.textContent = String(duel.botScore)
@@ -562,9 +567,8 @@ if (touchMode) {
   touch.bindButton(document.querySelector('#btn-jump')!, 'Space')
   touch.bindButton(document.querySelector('#btn-dash')!, 'ShiftLeft')
   touch.bindButton(document.querySelector('#btn-slide')!, 'KeyC')
-  // fire buttons also steer the view while held (drag-to-aim)
+  // the fire button also steers the view while held (drag-to-aim)
   touch.bindFireButton(document.querySelector('#btn-fire')!, 'Mouse0')
-  touch.bindFireButton(document.querySelector('#btn-fire-left')!, 'Mouse0')
   touch.bindButton(document.querySelector('#btn-reload')!, 'KeyR')
   for (const btn of document.querySelectorAll<HTMLButtonElement>('.slot-btn')) {
     touch.bindButton(btn, btn.dataset.key!)

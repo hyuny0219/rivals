@@ -829,14 +829,9 @@ body.touch .touch-btn:active {
   background: rgba(255, 90, 60, 0.35);
 }
 
-/* mirror fire button: shoot with the left thumb while the right thumb aims */
-#btn-fire-left {
-  left: 20px;
-  bottom: 200px;
-  width: 72px;
-  height: 72px;
-  font-size: 14px;
-  background: rgba(255, 90, 60, 0.35);
+/* zoom button only exists while holding an ADS-capable weapon */
+body.touch #btn-ads.hidden {
+  display: none;
 }
 
 #btn-ads {
