@@ -551,11 +551,22 @@ function setupRoster(info: RosterInfo) {
     }
   }
 
-  // position the player at their team spawn now, so a mid-match reconnect
-  // (roster re-sent) drops them back in place rather than at the origin; the
-  // round countdown re-spawns everyone anyway on a normal start
+  // position everyone at their team spawns now, so a mid-match reconnect
+  // (roster re-sent) drops them back in place with entities live rather than at
+  // the origin / frozen; the round countdown re-spawns everyone on a normal
+  // start, so this is redundant there but harmless
   const mySp = map.teamSpawns[onlineTeam]?.[mySpawnIdx]
   if (mySp) player.spawn(mySp.position, mySp.yaw)
+  for (const e of onlineEntities.values()) {
+    const sp = map.teamSpawns[e.team]?.[e.spawnIdx]
+    if (!sp) continue
+    if (e.remote) e.remote.activate(sp.position, sp.yaw)
+    if (e.bot) {
+      e.bot.setDifficulty(onlineDifficulty)
+      e.bot.reset(sp.position.clone(), sp.yaw)
+      e.bot.serverControlledHp = true
+    }
+  }
 }
 
 function teardownRoster() {
