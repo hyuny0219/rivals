@@ -2,8 +2,8 @@ export type DuelState = 'idle' | 'countdown' | 'combat' | 'roundEnd' | 'matchEnd
 
 const WIN_SCORE = 5
 const COUNTDOWN_SECONDS = 3
-/** Round 1 gets extra time for the in-game loadout pick. */
-const FIRST_COUNTDOWN_SECONDS = 8
+/** Round 1 gets extra time for the in-game loadout pick (10s pick + 3-2-1). */
+const FIRST_COUNTDOWN_SECONDS = 13
 const ROUND_END_SECONDS = 2.2
 const MATCH_END_SECONDS = 4
 
