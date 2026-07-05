@@ -87,11 +87,15 @@ function roomList() {
   return rooms_.slice(0, 30)
 }
 
+const DIFFICULTIES = ['easy', 'normal', 'hard']
+
 class Room {
-  constructor(code, teamSize, mapId) {
+  constructor(code, teamSize, mapId, fillBots = true, difficulty = 'normal') {
     this.code = code
     this.teamSize = Math.max(1, Math.min(4, Number(teamSize) || 1))
     this.mapId = MAP_IDS.includes(mapId) ? mapId : 'foundry'
+    this.fillBots = fillBots !== false
+    this.difficulty = DIFFICULTIES.includes(difficulty) ? difficulty : 'normal'
     this.capacity = this.teamSize * 2
     this.players = [] // {id, ws, team, ready}
     this.bots = [] // {id, team}
@@ -152,6 +156,7 @@ class Room {
       cap: this.capacity,
       teamSize: this.teamSize,
       mapId: this.mapId,
+      fillBots: this.fillBots,
     }
   }
 
@@ -162,6 +167,7 @@ class Room {
         code: this.code,
         teamSize: this.teamSize,
         mapId: this.mapId,
+        fillBots: this.fillBots,
         hostId: this.hostId,
         you: p.id,
         players: this.players.map((q) => ({ id: q.id, team: q.team, ready: q.ready, nick: q.nick })),
@@ -169,16 +175,29 @@ class Room {
     }
   }
 
+  /** Host chose to start now, filling every empty slot with bots. */
+  startWithBots() {
+    if (this.state !== 'waiting') return
+    this.fillBots = true
+    for (const p of this.players) p.ready = true
+    this.sendLobby()
+    this.tryStart()
+  }
+
   tryStart() {
     if (this.state !== 'waiting') return
     if (this.players.length === 0 || !this.players.every((p) => p.ready)) return
-    // fill empty slots with bots
+    // without bot fill the match waits for a full human roster
+    if (!this.fillBots && this.players.length < this.capacity) return
+    // fill empty slots with bots (only when bot fill is enabled)
     this.bots = []
     let botNum = 1
-    for (const team of [0, 1]) {
-      const humans = this.players.filter((p) => p.team === team).length
-      for (let i = humans; i < this.teamSize; i++) {
-        this.bots.push({ id: `b${botNum++}`, team })
+    if (this.fillBots) {
+      for (const team of [0, 1]) {
+        const humans = this.players.filter((p) => p.team === team).length
+        for (let i = humans; i < this.teamSize; i++) {
+          this.bots.push({ id: `b${botNum++}`, team })
+        }
       }
     }
     this.entities.clear()
@@ -190,6 +209,7 @@ class Room {
         t: 'roster',
         teamSize: this.teamSize,
         mapId: this.mapId,
+        difficulty: this.difficulty,
         hostId: this.hostId,
         you: p.id,
         players: this.players.map((q) => ({ id: q.id, team: q.team, nick: q.nick })),
@@ -348,7 +368,7 @@ wss.on('connection', (ws) => {
         if (room) return
         const code = makeCode()
         if (!code) return send(ws, { t: 'error', reason: 'busy' })
-        const newRoom = new Room(code, msg.teamSize, String(msg.mapId ?? 'foundry'))
+        const newRoom = new Room(code, msg.teamSize, String(msg.mapId ?? 'foundry'), msg.fillBots, String(msg.difficulty ?? 'normal'))
         rooms.set(code, newRoom)
         newRoom.addPlayer(ws, msg.nick)
         send(ws, { t: 'created', code })
@@ -371,6 +391,12 @@ wss.on('connection', (ws) => {
         player.ready = true
         room.sendLobby()
         room.tryStart()
+        break
+      }
+      case 'fillStart': {
+        if (!room || room.state !== 'waiting') return
+        if (ws.playerId !== room.hostId) return
+        room.startWithBots()
         break
       }
       case 'state': {

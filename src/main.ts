@@ -22,7 +22,6 @@ import { WEAPONS } from './combat/weapons'
 const canvas = document.querySelector<HTMLCanvasElement>('#game')!
 const menu = document.querySelector<HTMLDivElement>('#menu')!
 const hud = document.querySelector<HTMLDivElement>('#hud')!
-const playBtn = document.querySelector<HTMLButtonElement>('#play-btn')!
 const dashFill = document.querySelector<HTMLSpanElement>('#dash-fill')!
 const hpFill = document.querySelector<HTMLSpanElement>('#hp-fill')!
 const hpNum = document.querySelector<HTMLSpanElement>('#hp-num')!
@@ -34,7 +33,6 @@ const touchSlotEls = [...document.querySelectorAll<HTMLButtonElement>('.slot-btn
 const crosshair = document.querySelector<HTMLDivElement>('#crosshair')!
 const hitmarker = document.querySelector<HTMLDivElement>('#hitmarker')!
 const killfeed = document.querySelector<HTMLDivElement>('#killfeed')!
-const duelBtn = document.querySelector<HTMLButtonElement>('#duel-btn')!
 const scoreWrap = document.querySelector<HTMLDivElement>('#score-wrap')!
 const scorePlayer = document.querySelector<HTMLSpanElement>('#score-player')!
 const scoreBot = document.querySelector<HTMLSpanElement>('#score-bot')!
@@ -57,6 +55,7 @@ const onlineCodeInput = document.querySelector<HTMLInputElement>('#online-code')
 const onlineStatus = document.querySelector<HTMLDivElement>('#online-status')!
 const onlineStatusText = document.querySelector<HTMLSpanElement>('#online-status-text')!
 const onlineGoBtn = document.querySelector<HTMLButtonElement>('#online-go-btn')!
+const onlineFillBtn = document.querySelector<HTMLButtonElement>('#online-fill-btn')!
 const onlineCancelBtn = document.querySelector<HTMLButtonElement>('#online-cancel-btn')!
 const loadoutPanel = document.querySelector<HTMLDivElement>('#loadout-panel')!
 const nickGate = document.querySelector<HTMLDivElement>('#nick-gate')!
@@ -67,6 +66,11 @@ const lobbyEl = document.querySelector<HTMLDivElement>('#lobby')!
 const lobbyNick = document.querySelector<HTMLElement>('#lobby-nick')!
 const roomsList = document.querySelector<HTMLDivElement>('#rooms-list')!
 const roomsRefreshBtn = document.querySelector<HTMLButtonElement>('#rooms-refresh-btn')!
+const createPanel = document.querySelector<HTMLDivElement>('#create-panel')!
+const createConfirmBtn = document.querySelector<HTMLButtonElement>('#create-confirm-btn')!
+const createCancelBtn = document.querySelector<HTMLButtonElement>('#create-cancel-btn')!
+const fillBotsBtn = document.querySelector<HTMLButtonElement>('#fill-bots-btn')!
+const botDiffRow = document.querySelector<HTMLDivElement>('#bot-diff-row')!
 
 const touchMode = isTouchDevice()
 if (touchMode) document.body.classList.add('touch')
@@ -346,6 +350,7 @@ let selectedDifficulty: Difficulty = 'normal'
 let selectedPrimary = 'ar'
 let selectedSecondary = 'pistol'
 let selectedMap = 'random'
+let fillBots = true // create-room: fill empty slots with bots
 let bannerTimeout = 0
 
 function showBanner(text: string, sub = '', seconds = 1) {
@@ -441,6 +446,7 @@ interface OnlineEntity {
 let onlineYouId = ''
 let onlineTeam = 0
 let onlineTeamSize = 1
+let onlineDifficulty: Difficulty = 'normal'
 let onlineIsHost = false
 let mySpawnIdx = 0
 let onlineMyHp = MAX_HP
@@ -448,6 +454,7 @@ let onlineScoreYou = 0
 let onlineScoreEnemy = 0
 let onlineRound = 0
 let onlineGoRequested = false
+let onlineFillRequested = false
 let onlineSendTimer = 0
 const onlineEntities = new Map<string, OnlineEntity>()
 const idByEntity = new Map<Damageable, string>()
@@ -455,10 +462,11 @@ const onlineTimers: number[] = []
 const tmpEye = new THREE.Vector3()
 const tmpDir = new THREE.Vector3()
 
-function setOnlineStatus(html: string, showGo = false) {
+function setOnlineStatus(html: string, showGo = false, showFill = false) {
   onlineStatus.classList.remove('hidden')
   onlineStatusText.innerHTML = html
   onlineGoBtn.classList.toggle('hidden', !showGo)
+  onlineFillBtn.classList.toggle('hidden', !showFill)
 }
 
 function clearOnlineTimers() {
@@ -494,6 +502,7 @@ function setupRoster(info: RosterInfo) {
   loadMap(info.mapId) // server-chosen arena, identical for everyone
   onlineYouId = info.you
   onlineTeamSize = info.teamSize
+  onlineDifficulty = (info.difficulty as Difficulty) ?? 'normal'
   onlineIsHost = info.you === info.hostId
   onlineTeam = info.players.find((p) => p.id === info.you)?.team ?? 0
   idByEntity.set(playerTarget, info.you)
@@ -577,7 +586,7 @@ function handleOnlineRound(info: RoundInfo) {
       const sp = map.teamSpawns[e.team][e.spawnIdx]
       if (e.remote) e.remote.activate(sp.position, sp.yaw)
       if (e.bot) {
-        e.bot.setDifficulty('normal')
+        e.bot.setDifficulty(onlineDifficulty)
         e.bot.reset(sp.position.clone(), sp.yaw)
         e.bot.serverControlledHp = true
       }
@@ -629,6 +638,7 @@ function endOnlineCleanup() {
   aliveRow.classList.add('hidden')
   onlineStatus.classList.add('hidden')
   onlineGoBtn.classList.add('hidden')
+  onlineFillBtn.classList.add('hidden')
   lobbyEl.classList.remove('hidden') // back to the room browser
   refreshRooms()
   if (document.pointerLockElement === canvas) document.exitPointerLock()
@@ -643,17 +653,22 @@ function renderLobby(info: LobbyInfo) {
       .map((p) => `${p.id === info.you ? `${p.nick}(나)` : p.nick}${p.id === info.hostId ? '👑' : ''}${p.ready ? ' ✓' : ''}`)
       .join(', ') || '—'
   const me = info.players.find((p) => p.id === info.you)
+  const fillNote = info.fillBots === false ? '봇 없음 (정원이 차면 시작)' : '빈자리는 봇'
+  const isHost = info.you === info.hostId
+  const notFull = info.players.length < cap
   setOnlineStatus(
-    `방 <b>${info.code}</b> (${info.teamSize}v${info.teamSize}) · 맵: ${mapById(info.mapId).name} · ${info.players.length}/${cap}명 · 빈자리는 봇<br/>` +
+    `방 <b>${info.code}</b> (${info.teamSize}v${info.teamSize}) · 맵: ${mapById(info.mapId).name} · ${info.players.length}/${cap}명 · ${fillNote}<br/>` +
       `<span style="color:#57d38c">팀 A: ${label(0)}</span> · <span style="color:#ff5a3c">팀 B: ${label(1)}</span>`,
     !(me?.ready ?? false),
+    isHost && notFull, // host can fill the shortage with bots and start now
   )
 }
 
 const online = new OnlineManager({
   onCreated: (code) => {
     lobbyEl.classList.add('hidden') // hide the browser while in a room
-    setOnlineStatus(`방 코드: <b>${code}</b> — 참가자 대기 중…`, true)
+    // creator is always host and alone (not full) → offer immediate bot-fill
+    setOnlineStatus(`방 코드: <b>${code}</b> — 참가자 대기 중…`, true, true)
   },
   onLobby: (info) => {
     lobbyEl.classList.add('hidden')
@@ -717,14 +732,42 @@ const online = new OnlineManager({
   },
 })
 
-onlineCreateBtn.addEventListener('click', async () => {
+function setFillBots(on: boolean) {
+  fillBots = on
+  fillBotsBtn.classList.toggle('on', on)
+  fillBotsBtn.textContent = on ? '봇으로 채우기' : '사람만 (봇 없음)'
+  botDiffRow.classList.toggle('hidden', !on)
+}
+
+// 방 만들기 opens the config panel; the actual create happens on 만들기
+onlineCreateBtn.addEventListener('click', () => {
   if (online.active) return
+  audio.ensure()
+  lobbyEl.classList.add('hidden')
+  createPanel.classList.remove('hidden')
+})
+
+fillBotsBtn.addEventListener('click', () => setFillBots(!fillBots))
+
+createCancelBtn.addEventListener('click', () => {
+  createPanel.classList.add('hidden')
+  lobbyEl.classList.remove('hidden')
+})
+
+// free-tier servers sleep after idle; report the wake-up while retrying
+function wakingStatus(attempt: number, max: number) {
+  setOnlineStatus(`무료 서버를 깨우는 중… 잠시만요 (${attempt}/${max})`)
+}
+
+createConfirmBtn.addEventListener('click', async () => {
+  if (online.active) return
+  createPanel.classList.add('hidden')
   audio.ensure()
   setOnlineStatus('서버 연결 중…')
   try {
-    await online.create(defaultServerUrl(), teamSize, resolveMapId())
-  } catch {
-    setOnlineStatus('서버에 연결할 수 없습니다 (잠시 후 다시 시도해주세요)')
+    await online.create(defaultServerUrl(), teamSize, resolveMapId(), fillBots, selectedDifficulty, wakingStatus)
+  } catch (e) {
+    if ((e as Error).message !== 'cancelled') setOnlineStatus('서버에 연결할 수 없습니다 (잠시 후 다시 시도해주세요)')
   }
 })
 
@@ -735,9 +778,9 @@ onlineJoinBtn.addEventListener('click', async () => {
   audio.ensure()
   setOnlineStatus('입장 중…')
   try {
-    await online.join(defaultServerUrl(), code)
-  } catch {
-    setOnlineStatus('서버에 연결할 수 없습니다 (잠시 후 다시 시도해주세요)')
+    await online.join(defaultServerUrl(), code, wakingStatus)
+  } catch (e) {
+    if ((e as Error).message !== 'cancelled') setOnlineStatus('서버에 연결할 수 없습니다 (잠시 후 다시 시도해주세요)')
   }
 })
 
@@ -746,11 +789,17 @@ onlineGoBtn.addEventListener('click', () => {
   void startGame()
 })
 
+onlineFillBtn.addEventListener('click', () => {
+  onlineFillRequested = true
+  void startGame()
+})
+
 onlineCancelBtn.addEventListener('click', () => {
   online.leave()
   teardownRoster()
   onlineStatus.classList.add('hidden')
   onlineGoBtn.classList.add('hidden')
+  onlineFillBtn.classList.add('hidden')
   lobbyEl.classList.remove('hidden')
   refreshRooms() // reconnect + re-list after leaving a room
 })
@@ -769,9 +818,10 @@ function renderRooms(rooms: import('./net/online').RoomSummary[]) {
     const el = document.createElement('div')
     el.className = 'room-item'
     const mapName = mapById(r.mapId).name
+    const botTag = r.fillBots === false ? ' · 봇 없음' : ' · 봇'
     el.innerHTML =
       `<span class="r-host">${escapeHtml(r.host)}</span>` +
-      `<span class="r-meta">${r.teamSize}v${r.teamSize} · ${mapName} · ${r.count}/${r.cap}</span>` +
+      `<span class="r-meta">${r.teamSize}v${r.teamSize} · ${mapName} · ${r.count}/${r.cap}${botTag}</span>` +
       `<button class="r-join">참가</button>`
     el.querySelector('.r-join')!.addEventListener('click', () => joinRoom(r.code))
     roomsList.appendChild(el)
@@ -784,8 +834,15 @@ function escapeHtml(s: string): string {
 
 function refreshRooms() {
   if (online.active) return
-  online.browse(defaultServerUrl()).catch(() => {
-    roomsList.innerHTML = '<div class="rooms-empty">서버에 연결할 수 없습니다 (무료 서버는 첫 접속에 ~30초)</div>'
+  if (roomsList.querySelector('.room-item') === null) {
+    roomsList.innerHTML = '<div class="rooms-empty">서버 연결 중… (무료 서버는 첫 접속에 최대 ~30초)</div>'
+  }
+  const onWaking = (attempt: number, max: number) => {
+    if (online.active) return
+    roomsList.innerHTML = `<div class="rooms-empty">무료 서버를 깨우는 중… (${attempt}/${max})</div>`
+  }
+  online.browse(defaultServerUrl(), onWaking).catch(() => {
+    roomsList.innerHTML = '<div class="rooms-empty">서버에 연결할 수 없습니다 · 새로고침을 눌러 다시 시도하세요</div>'
   })
 }
 
@@ -794,9 +851,9 @@ async function joinRoom(code: string) {
   audio.ensure()
   setOnlineStatus('입장 중…')
   try {
-    await online.join(defaultServerUrl(), code)
-  } catch {
-    setOnlineStatus('입장에 실패했습니다')
+    await online.join(defaultServerUrl(), code, wakingStatus)
+  } catch (e) {
+    if ((e as Error).message !== 'cancelled') setOnlineStatus('입장에 실패했습니다')
   }
 }
 
@@ -1059,7 +1116,12 @@ function setPlaying(p: boolean) {
     pendingDuel = false
     beginDuel()
   }
-  if (p && onlineGoRequested) {
+  if (p && onlineFillRequested) {
+    onlineFillRequested = false
+    onlineGoRequested = false // fill implies ready+start
+    online.fillStart()
+    showBanner('빈자리를 봇으로 채우는 중…', '', 2.5)
+  } else if (p && onlineGoRequested) {
     onlineGoRequested = false
     online.ready()
     showBanner('상대 준비 대기 중…', '', 3)
@@ -1132,18 +1194,6 @@ async function startGame() {
     /* ignore; user can click again */
   }
 }
-
-playBtn.addEventListener('click', () => {
-  if (online.active) return // cancel the online room first
-  pendingDuel = false
-  loadMap('foundry') // practice range is always Foundry (fixed dummy layout)
-  void startGame()
-})
-duelBtn.addEventListener('click', () => {
-  if (online.active) return
-  pendingDuel = true
-  void startGame()
-})
 
 // menu option toggles (difficulty / loadout)
 function wireToggleGroup(selector: string, onPick: (id: string) => void) {
@@ -1541,6 +1591,13 @@ requestAnimationFrame(frame)
       pendingDuel = false
       beginDuel()
     }
+  },
+  /** Enter the practice range (dummies, no rounds) — test helper. */
+  startPractice() {
+    if (online.active) return
+    pendingDuel = false
+    loadMap('foundry')
+    void startGame()
   },
   spawnAt(x: number, y: number, z: number, yaw: number) {
     player.spawn(new THREE.Vector3(x, y, z), yaw)
