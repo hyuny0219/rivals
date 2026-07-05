@@ -61,6 +61,15 @@ export class DuelManager {
     this.endRound(playerTeamWon)
   }
 
+  /** Both teams wiped in the same instant (e.g. a mutual grenade) — no score,
+   * replay the round instead of awarding the kill to whoever we checked first. */
+  roundDraw() {
+    if (this.state !== 'combat') return
+    this.state = 'roundEnd'
+    this.timer = ROUND_END_SECONDS
+    this.cb.onBanner('무승부', `${this.playerScore} : ${this.botScore}`, 2)
+  }
+
   private endRound(playerWon: boolean) {
     if (this.playerScore >= WIN_SCORE || this.botScore >= WIN_SCORE) {
       this.state = 'matchEnd'

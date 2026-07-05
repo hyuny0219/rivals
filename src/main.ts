@@ -613,9 +613,14 @@ function handleOnlineRound(info: RoundInfo) {
     showBanner('GO!', '', 0.7)
     audio.go()
   } else if (info.phase === 'roundEnd') {
-    showBanner(info.youWon ? '라운드 승리!' : '라운드 패배', `${info.scoreYou} : ${info.scoreEnemy}`, 2)
-    if (info.youWon) audio.roundWin()
-    else audio.roundLose()
+    if (info.draw) {
+      showBanner('무승부', `${info.scoreYou} : ${info.scoreEnemy}`, 2)
+      audio.roundLose()
+    } else {
+      showBanner(info.youWon ? '라운드 승리!' : '라운드 패배', `${info.scoreYou} : ${info.scoreEnemy}`, 2)
+      if (info.youWon) audio.roundWin()
+      else audio.roundLose()
+    }
   } else if (info.phase === 'matchEnd') {
     showBanner(info.youWon ? '승리!' : '패배', `${info.scoreYou} : ${info.scoreEnemy}`, 3.5)
     if (info.youWon) audio.win()
@@ -1384,7 +1389,9 @@ function frame(now: number) {
           // team elimination decides the round
           if (duel.state === 'combat') {
             const { allies, enemies } = aliveCounts()
-            if (enemies === 0) duel.roundWon(true)
+            // check the mutual-wipe case first so a suicide-trade isn't a win
+            if (enemies === 0 && allies === 0) duel.roundDraw()
+            else if (enemies === 0) duel.roundWon(true)
             else if (allies === 0) duel.roundWon(false)
           }
         } else if (online.active && onlineIsHost) {

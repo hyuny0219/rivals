@@ -801,6 +801,9 @@ body {
   text-align: center;
   color: #eef2f7;
   pointer-events: auto;
+  /* stack above the touch look/move zones (later siblings in #hud) so the
+     weapon buttons are tappable on mobile, which has no number keys */
+  z-index: 12;
 }
 
 #loadout-panel.hidden {

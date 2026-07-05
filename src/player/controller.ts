@@ -287,27 +287,37 @@ export class PlayerController {
     this.computeBox(this.box, this.position, this.height)
     this.world.overlaps(this.box, this.hits)
 
-    for (const hit of this.hits) {
-      if (axis === 'y') {
-        if (amount <= 0) {
-          this.position.y = hit.max.y + EPS
-          this.velocity.y = 0
-          this.grounded = true
-        } else {
-          this.position.y = hit.min.y - this.height - EPS
-          this.velocity.y = 0
-        }
+    if (this.hits.length === 0) return
+
+    if (axis === 'y') {
+      // resolve to the extreme surface across ALL overlaps, not whichever
+      // collider happens to be last: land on the highest floor / stop under
+      // the lowest ceiling, so straddling boxes of different heights can't clip
+      if (amount <= 0) {
+        let top = -Infinity
+        for (const h of this.hits) if (h.max.y > top) top = h.max.y
+        this.position.y = top + EPS
+        this.grounded = true
       } else {
-        // step-up assist: low obstacles (stairs, curbs) don't stop grounded movement
-        const lift = hit.max.y - this.position.y
-        if (wasGrounded && lift > 0 && lift <= STEP_HEIGHT && this.tryStepUp(hit.max.y)) continue
-        if (amount > 0) {
-          this.position[axis] = hit.min[axis] - HALF_WIDTH - EPS
-        } else {
-          this.position[axis] = hit.max[axis] + HALF_WIDTH + EPS
-        }
-        this.velocity[axis] = 0
+        let bottom = Infinity
+        for (const h of this.hits) if (h.min.y < bottom) bottom = h.min.y
+        this.position.y = bottom - this.height - EPS
       }
+      this.velocity.y = 0
+      this.computeBox(this.box, this.position, this.height)
+      return
+    }
+
+    for (const hit of this.hits) {
+      // step-up assist: low obstacles (stairs, curbs) don't stop grounded movement
+      const lift = hit.max.y - this.position.y
+      if (wasGrounded && lift > 0 && lift <= STEP_HEIGHT && this.tryStepUp(hit.max.y)) continue
+      if (amount > 0) {
+        this.position[axis] = hit.min[axis] - HALF_WIDTH - EPS
+      } else {
+        this.position[axis] = hit.max[axis] + HALF_WIDTH + EPS
+      }
+      this.velocity[axis] = 0
       this.computeBox(this.box, this.position, this.height)
     }
   }
