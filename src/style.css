@@ -1145,6 +1145,51 @@ body {
   color: #ffd24a;
 }
 
+/* spectator bar (shown while dead, following a teammate) */
+#spectate-bar {
+  position: absolute;
+  top: 44%;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  background: rgba(10, 14, 22, 0.62);
+  padding: 8px 18px;
+  border-radius: 8px;
+  color: #eef2f7;
+  font-size: 15px;
+  white-space: nowrap;
+}
+
+#spectate-bar.hidden {
+  display: none;
+}
+
+#spectate-bar .spec-dead {
+  color: #ff5a3c;
+  font-weight: 800;
+  letter-spacing: 1px;
+}
+
+#spectate-bar b {
+  color: #57d38c;
+}
+
+#spectate-bar .spec-hint {
+  color: #8494a8;
+  font-size: 12px;
+}
+
+/* hide combat HUD bits while spectating a teammate */
+body.spectating #crosshair,
+body.spectating #hitmarker,
+body.spectating #scope,
+body.spectating #ammo-wrap,
+body.spectating #dash-indicator {
+  display: none;
+}
+
 /* end-of-match summary board */
 #matchboard {
   position: absolute;
