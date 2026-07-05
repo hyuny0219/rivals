@@ -54,6 +54,36 @@ export class Effects {
     })
   }
 
+  /** Floating damage number that rises off the target and fades. */
+  damageNumber(point: THREE.Vector3, amount: number, isHead = false) {
+    const canvas = document.createElement('canvas')
+    canvas.width = 128
+    canvas.height = 72
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return
+    ctx.font = 'bold 52px system-ui, Arial, sans-serif'
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'middle'
+    ctx.lineWidth = 7
+    ctx.strokeStyle = 'rgba(0,0,0,0.9)'
+    ctx.fillStyle = isHead ? '#ffd24a' : '#ffffff'
+    const text = String(Math.round(amount))
+    ctx.strokeText(text, 64, 38)
+    ctx.fillText(text, 64, 38)
+    const tex = new THREE.CanvasTexture(canvas)
+    const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false, depthWrite: false })
+    const spr = new THREE.Sprite(mat)
+    spr.position.copy(point)
+    spr.position.y += 0.35
+    const scale = isHead ? 0.95 : 0.72
+    spr.scale.set(scale * 1.6, scale, 1)
+    spr.userData.baseY = spr.position.y
+    this.add(spr, 0.75, (t, obj) => {
+      obj.position.y = (obj.userData.baseY as number) + t * 0.8
+      ;((obj as THREE.Sprite).material as THREE.SpriteMaterial).opacity = 1 - t * t
+    })
+  }
+
   puff(point: THREE.Vector3, color = 0x9aa5b1) {
     const mat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.7 })
     const m = new THREE.Mesh(this.boomGeo, mat)
@@ -86,6 +116,10 @@ function disposeObject(obj: THREE.Object3D) {
   if (obj instanceof THREE.Line) {
     anyObj.geometry.dispose()
     ;(anyObj.material as THREE.Material).dispose()
+  } else if (obj instanceof THREE.Sprite) {
+    const m = obj.material as THREE.SpriteMaterial
+    m.map?.dispose()
+    m.dispose()
   } else if (anyObj.material && (anyObj.material as THREE.Material).transparent) {
     ;(anyObj.material as THREE.Material).dispose()
   }
