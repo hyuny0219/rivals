@@ -597,6 +597,15 @@ function setPlaying(p: boolean) {
   playing = p
   menu.classList.toggle('hidden', p)
   hud.classList.toggle('hidden', !p)
+  document.body.classList.toggle('playing', p) // gates the rotate overlay
+  if (touchMode && !p) {
+    // back to the menu: release the landscape lock so portrait works again
+    try {
+      ;(screen.orientation as ScreenOrientation & { unlock?: () => void }).unlock?.()
+    } catch {
+      /* not supported — fine */
+    }
+  }
   input.releaseAll()
   setAdsToggle(false) // releaseAll dropped the virtual key; keep UI in sync
   pauseOverlay.classList.add('hidden')

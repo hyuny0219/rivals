@@ -915,8 +915,50 @@ body.touch #killfeed {
   margin-bottom: 16px;
 }
 
+/* the rotate prompt only applies in-game: the menu is fine in portrait,
+   and starting the game auto-locks to landscape where the API exists */
 @media (orientation: portrait) {
-  body.touch #rotate-overlay {
+  body.touch.playing #rotate-overlay {
     display: flex;
+  }
+
+  /* portrait menu: smaller title, wrapping rows, scroll if needed */
+  #menu {
+    overflow-y: auto;
+    align-items: flex-start;
+    padding: 32px 0;
+  }
+
+  .menu-inner {
+    width: 100%;
+    padding: 0 14px;
+  }
+
+  .menu-inner h1 {
+    font-size: 48px;
+  }
+
+  #mode-row {
+    flex-direction: column;
+    align-items: center;
+  }
+
+  #play-btn,
+  #duel-btn {
+    width: 240px;
+  }
+
+  #online-row,
+  #difficulty-row,
+  .loadout-group,
+  .setting-row {
+    flex-wrap: wrap;
+  }
+
+  .row-label {
+    width: 100%;
+    text-align: center;
+    margin-right: 0;
+    margin-bottom: 2px;
   }
 }
