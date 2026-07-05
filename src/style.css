@@ -262,6 +262,55 @@ body {
   font-size: 13px;
 }
 
+/* pause confirm overlay */
+#pause-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 15;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(10, 14, 22, 0.7);
+  backdrop-filter: blur(4px);
+}
+
+#pause-overlay.hidden {
+  display: none;
+}
+
+.pause-inner {
+  text-align: center;
+  color: #eef2f7;
+}
+
+.pause-inner h2 {
+  font-size: 28px;
+  font-weight: 800;
+  margin-bottom: 20px;
+}
+
+.pause-inner button {
+  display: block;
+  margin: 10px auto;
+  width: 200px;
+  padding: 12px 0;
+  font-size: 16px;
+  font-weight: 700;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+#pause-resume-btn {
+  background: #ff5a3c;
+  color: #fff;
+}
+
+#pause-quit-btn {
+  background: rgba(255, 255, 255, 0.12);
+  color: #cdd8e4;
+}
+
 /* damage vignette */
 #vignette {
   position: fixed;
@@ -647,15 +696,31 @@ body.touch .touch-help {
   display: inline;
 }
 
+/* touch HUD: keep readouts out from under the thumbs */
 body.touch #dash-indicator {
-  left: 24px;
-  bottom: 24px;
-  width: 110px;
+  left: auto;
+  right: 126px;
+  bottom: 168px;
+  width: 64px;
+}
+
+body.touch #dash-indicator label {
+  font-size: 10px;
+  margin-top: 3px;
 }
 
 body.touch #hp-wrap {
-  left: 24px;
-  bottom: 64px;
+  left: 70px;
+  bottom: auto;
+  top: 20px;
+}
+
+body.touch #hp-bar {
+  width: 120px;
+}
+
+body.touch #hp-num {
+  font-size: 15px;
 }
 
 body.touch #ammo-wrap {
@@ -664,8 +729,12 @@ body.touch #ammo-wrap {
   top: 14px;
 }
 
+body.touch #weapon-slots {
+  display: none; /* touch uses the dedicated slot buttons */
+}
+
 body.touch #killfeed {
-  top: 14px;
+  top: 70px;
   right: auto;
   left: 20px;
   align-items: flex-start;
@@ -752,45 +821,66 @@ body.touch .touch-btn:active {
 }
 
 #btn-fire {
-  right: 210px;
-  bottom: 52px;
+  right: 216px;
+  bottom: 56px;
   width: 88px;
   height: 88px;
   font-size: 16px;
   background: rgba(255, 90, 60, 0.35);
 }
 
+/* mirror fire button: shoot with the left thumb while the right thumb aims */
+#btn-fire-left {
+  left: 20px;
+  bottom: 200px;
+  width: 72px;
+  height: 72px;
+  font-size: 14px;
+  background: rgba(255, 90, 60, 0.35);
+}
+
 #btn-ads {
-  right: 126px;
-  bottom: 170px;
+  right: 36px;
+  bottom: 132px;
   width: 56px;
   height: 56px;
   font-size: 12px;
+}
+
+#btn-ads.active {
+  background: rgba(255, 90, 60, 0.6);
+  border-color: #ff5a3c;
 }
 
 #btn-reload {
-  right: 310px;
-  bottom: 30px;
+  right: 232px;
+  bottom: 160px;
   width: 56px;
   height: 56px;
   font-size: 12px;
 }
 
+/* slot row lives at the top, clear of both thumbs */
 body.touch #touch-slots {
   position: absolute;
   left: 50%;
-  bottom: 14px;
+  top: 78px;
   transform: translateX(-50%);
   display: flex;
-  gap: 8px;
+  gap: 10px;
 }
 
 .slot-btn {
   position: relative !important;
-  width: 40px;
-  height: 40px;
+  width: 48px;
+  height: 48px;
   border-radius: 8px !important;
-  font-size: 14px;
+  font-size: 16px;
+}
+
+.slot-btn.active {
+  background: rgba(255, 90, 60, 0.55);
+  border-color: #ff5a3c;
 }
 
 #btn-pause {
