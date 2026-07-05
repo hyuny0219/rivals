@@ -1,6 +1,5 @@
 services:
-  # RIFLE.GG client — static site (bot duel works fully serverless).
-  # Phase 5 will add a WebSocket game server as a second service here.
+  # RIFLE.GG client — static site (practice + bot duel work fully serverless).
   - type: web
     name: rifle-gg
     runtime: static
@@ -10,3 +9,12 @@ services:
       - path: /*
         name: Cache-Control
         value: no-cache
+
+  # Online 1v1 game server (WebSocket). Free tier sleeps after 15min idle —
+  # the first connection may take ~30s to wake it.
+  - type: web
+    name: rifle-gg-server
+    runtime: node
+    rootDir: server
+    buildCommand: npm ci
+    startCommand: node index.js

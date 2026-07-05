@@ -17,6 +17,7 @@ export interface HitInfo {
   target: Damageable
   isHead: boolean
   killed: boolean
+  damage: number
 }
 
 /**
@@ -90,6 +91,10 @@ export class WeaponController {
   }
 
   private adsHeld = false
+
+  /** Online relay hooks (visual-only info for the opponent's client). */
+  onFired?: (weaponId: string) => void
+  onGrenadeThrown?: (origin: THREE.Vector3, dir: THREE.Vector3) => void
 
   /** Crosshair gap in px for the HUD. */
   get crosshairGap(): number {
@@ -196,12 +201,13 @@ export class WeaponController {
       this.camera.getWorldDirection(this.vDir)
       this.projectiles.throwGrenade(this.camera.position, this.vDir, w.range, w.damage)
       this.audio?.throwGrenade()
+      this.onGrenadeThrown?.(this.camera.position, this.vDir)
     } else if (w.kind === 'melee') {
       this.camera.getWorldDirection(this.vDir)
       const hit = this.world.raycast(this.camera.position, this.vDir, w.range, this.self)
       if (hit?.hitbox) {
         const killed = hit.hitbox.entity.takeDamage(w.damage, false)
-        this.onHit({ target: hit.hitbox.entity, isHead: false, killed })
+        this.onHit({ target: hit.hitbox.entity, isHead: false, killed, damage: w.damage })
       }
       if (hit) this.effects.impact(hit.point)
     } else {
@@ -213,6 +219,7 @@ export class WeaponController {
       this.flashMesh.visible = true
     }
     this.audio?.shot(w.id)
+    this.onFired?.(w.id)
 
     // recoil: permanent pitch kick + small random yaw + viewmodel push-back
     this.player.punch(w.kick, (this.rng() - 0.5) * w.kick * 0.6)
@@ -240,7 +247,7 @@ export class WeaponController {
       const isHead = hit.hitbox.part === 'head'
       const damage = Math.round(w.damage * (isHead ? w.headshotMult : 1))
       const killed = hit.hitbox.entity.takeDamage(damage, isHead)
-      this.onHit({ target: hit.hitbox.entity, isHead, killed })
+      this.onHit({ target: hit.hitbox.entity, isHead, killed, damage })
     }
   }
 
