@@ -51,9 +51,20 @@ npm run build    # 프로덕션 빌드 (dist/)
 직접 방을 열 수도 있습니다(팀 규모 1v1~4v4, 맵 선택, 빈자리 봇 채우기 on/off, 봇 난이도).
 전원이 **시작**을 누르면 5선승 매치가 시작됩니다. 봇 채우기를 켜면 빈 자리를 봇이 채우고,
 방장은 **봇으로 채우고 시작**으로 인원이 부족해도 즉시 시작할 수 있습니다.
-서비스는 Render 무료 티어라 15분 유휴 후 잠들며, 첫 연결에 ~30초 걸릴 수 있습니다(자동 재시도).
+무료 호스팅은 유휴 시 잠들 수 있어 첫 연결에 수십 초가 걸릴 수 있습니다(클라이언트가 자동 재시도).
 
-클라이언트와 WebSocket 게임 서버는 하나의 서비스(같은 origin)로 배포됩니다. 로컬 개발 시에는
-`node server/index.js`(포트 8081)를 함께 실행하면 됩니다.
+## 배포
+
+클라이언트와 WebSocket 게임 서버는 **하나의 서비스(같은 origin)** 로 동작합니다. 게임 로직은
+런타임 독립 모듈(`server/game.js`)이고, 전송 계층만 런타임별로 다릅니다:
+
+- **Deno Deploy (기본)** — `server/deno.ts` 진입점. `.github/workflows/deploy.yml`이 `main` 푸시 시
+  클라이언트를 빌드(`dist/`)하고 `deployctl`로 배포합니다. GitHub 저장소 시크릿에
+  `DENO_DEPLOY_TOKEN`(Deno Deploy 액세스 토큰), 선택적으로 `DENO_PROJECT`(기본값 `rifle-gg`)를
+  등록하세요. Deno Deploy는 WebSocket을 지원하고 무료 플랜에서 카드가 필요 없습니다.
+- **Node 호스트 (Render 등)** — `server/index.js` 진입점. `render.yaml`은 Node 웹 서비스 하나로
+  빌드+구동합니다.
+
+로컬 개발은 `node server/index.js`(포트 8081)를 클라이언트(`npm run dev`)와 함께 실행하면 됩니다.
 
 전체 계획은 [PLAN.md](./PLAN.md) 참고.
