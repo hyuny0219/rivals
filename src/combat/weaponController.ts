@@ -6,6 +6,7 @@ import { WEAPONS, SLOT_WEAPONS, SLOT_ORDER, WeaponDef, WeaponSlot } from './weap
 import { Effects } from './effects'
 import { ProjectileManager } from './projectiles'
 import { createRng } from './rng'
+import { AudioEngine } from '../core/audio'
 
 const SWITCH_TIME = 0.28
 const GRENADE_REGEN_SECONDS = 8
@@ -40,6 +41,11 @@ export class WeaponController {
   private recoilZ = 0
   private bobPhase = 0
   private baseFov: number
+  private flashLight = new THREE.PointLight(0xffc36b, 0, 7)
+  private flashMesh = new THREE.Mesh(
+    new THREE.SphereGeometry(0.055, 6, 4),
+    new THREE.MeshBasicMaterial({ color: 0xffd9a0 }),
+  )
 
   // scratch
   private vDir = new THREE.Vector3()
@@ -57,6 +63,7 @@ export class WeaponController {
     /** The shooter as a damage target (ignored by own rays, hit by own grenades). */
     private self: Damageable,
     private onHit: (info: HitInfo) => void,
+    private audio?: AudioEngine,
     seed = 1337,
   ) {
     this.rng = createRng(seed)
@@ -158,6 +165,7 @@ export class WeaponController {
     this.reloadTimer = 0
     this.switchTimer = SWITCH_TIME
     this.bloom = 0
+    this.audio?.weaponSwitch()
     this.buildViewmodel()
   }
 
@@ -166,6 +174,7 @@ export class WeaponController {
     if (w.magazine <= 0 || w.kind === 'projectile') return
     if (this.ammoInMag >= w.magazine) return
     this.reloadTimer = w.reloadTime
+    this.audio?.reload()
   }
 
   private currentSpread(): number {
@@ -186,6 +195,7 @@ export class WeaponController {
       this.mag.set(w.id, count - 1)
       this.camera.getWorldDirection(this.vDir)
       this.projectiles.throwGrenade(this.camera.position, this.vDir, w.range, w.damage)
+      this.audio?.throwGrenade()
     } else if (w.kind === 'melee') {
       this.camera.getWorldDirection(this.vDir)
       const hit = this.world.raycast(this.camera.position, this.vDir, w.range, this.self)
@@ -199,7 +209,10 @@ export class WeaponController {
       this.muzzle.getWorldPosition(this.vMuzzle)
       for (let p = 0; p < w.pellets; p++) this.fireBullet(w)
       this.bloom += w.bloom
+      this.flashLight.intensity = 8
+      this.flashMesh.visible = true
     }
+    this.audio?.shot(w.id)
 
     // recoil: permanent pitch kick + small random yaw + viewmodel push-back
     this.player.punch(w.kick, (this.rng() - 0.5) * w.kick * 0.6)
@@ -248,6 +261,15 @@ export class WeaponController {
     this.player.sensScale = 1
   }
 
+  /** Change the base (non-ADS) field of view — from the settings menu. */
+  setBaseFov(fov: number) {
+    this.baseFov = fov
+    if (!this.aiming) {
+      this.camera.fov = fov
+      this.camera.updateProjectionMatrix()
+    }
+  }
+
   /** Equip a loadout and refill everything (duel round start). */
   setLoadout(primaryId: string, secondaryId: string) {
     this.slotIndex.primary = Math.max(0, SLOT_WEAPONS.primary.indexOf(primaryId))
@@ -267,7 +289,7 @@ export class WeaponController {
 
   private buildViewmodel() {
     this.viewmodel.traverse((o) => {
-      if (o instanceof THREE.Mesh) {
+      if (o instanceof THREE.Mesh && o !== this.flashMesh) {
         o.geometry.dispose()
         ;(o.material as THREE.Material).dispose()
       }
@@ -302,12 +324,24 @@ export class WeaponController {
       boxMesh(accent, 0.072, 0.02, 0.1, 0, 0.065, -len * 0.3) // sight rail accent
       this.muzzle.position.set(0, 0.02, -len - 0.22)
     }
+    // reusable muzzle flash (light + glow sphere) rides on the muzzle
+    this.flashLight.intensity = 0
+    this.flashMesh.visible = false
+    this.muzzle.add(this.flashLight)
+    this.muzzle.add(this.flashMesh)
     this.viewmodel.add(this.muzzle)
     this.viewmodel.position.set(0.32, -0.28, -0.5)
   }
 
   private updateViewmodel(dt: number) {
     this.recoilZ = Math.max(0, this.recoilZ - dt * 0.9)
+    if (this.flashLight.intensity > 0) {
+      this.flashLight.intensity = Math.max(0, this.flashLight.intensity - dt * 160)
+      if (this.flashLight.intensity < 1) {
+        this.flashLight.intensity = 0
+        this.flashMesh.visible = false
+      }
+    }
     const speed = Math.hypot(this.player.velocity.x, this.player.velocity.z)
     if (this.player.grounded && speed > 0.5) this.bobPhase += dt * Math.min(speed, 10) * 1.6
     const bobX = Math.sin(this.bobPhase) * 0.008

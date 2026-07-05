@@ -107,6 +107,7 @@ export class Bot implements Damageable {
     private target: Damageable & { position: THREE.Vector3 },
     private onShotHit: (damage: number, killed: boolean) => void,
     private onDied: () => void,
+    private onFired?: () => void,
   ) {
     this.controller = new PlayerController(world) // headless
 
@@ -279,6 +280,7 @@ export class Bot implements Damageable {
     }
     this.burstLeft--
     this.fireTimer = 60 / this.weapon.rpm
+    this.onFired?.()
 
     // fire one bullet with difficulty-scaled error
     this.vDir.copy(this.vTargetEye).sub(this.vEye).normalize()

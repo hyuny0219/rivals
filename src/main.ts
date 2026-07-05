@@ -12,6 +12,8 @@ import { SLOT_ORDER } from './combat/weapons'
 import { TargetDummy } from './entities/dummy'
 import { Bot, Difficulty } from './entities/bot'
 import { DuelManager } from './game/duel'
+import { AudioEngine } from './core/audio'
+import { loadSettings, saveSettings } from './core/settings'
 
 const canvas = document.querySelector<HTMLCanvasElement>('#game')!
 const menu = document.querySelector<HTMLDivElement>('#menu')!
@@ -36,6 +38,7 @@ const bannerMain = document.querySelector<HTMLDivElement>('#banner-main')!
 const bannerSub = document.querySelector<HTMLDivElement>('#banner-sub')!
 const botHpWrap = document.querySelector<HTMLDivElement>('#bot-hp-wrap')!
 const botHpFill = document.querySelector<HTMLSpanElement>('#bot-hp-fill')!
+const vignette = document.querySelector<HTMLDivElement>('#vignette')!
 
 const touchMode = isTouchDevice()
 if (touchMode) document.body.classList.add('touch')
@@ -102,6 +105,8 @@ const playerTarget: PlayerTarget = {
     if (duel.active && duel.frozen) return false // no damage during countdown/round end
     playerTarget.hp = Math.max(0, playerTarget.hp - amount)
     playerTarget.lastDamageAt = elapsed
+    audio.hurt()
+    damageFlash = Math.min(1, damageFlash + amount / 50)
     if (playerTarget.hp <= 0) {
       if (duel.active) {
         addFeedEntry('<b>BOT</b> YOU 처치')
@@ -146,8 +151,9 @@ function syncPlayerCenter() {
 }
 respawn()
 
-// ---------- combat ----------
-const effects = new Effects(scene)
+// ---------- audio / combat ----------
+const audio = new AudioEngine()
+const effects = new Effects(scene, audio)
 
 const dummies: TargetDummy[] = []
 // keep clear of the stair colliders (x ±8.45..12.95, z ±13..19) and crates
@@ -178,9 +184,19 @@ const projectiles = new ProjectileManager(
   },
 )
 
-const weapons = new WeaponController(physics, player, camera, effects, projectiles, playerTarget, (info) => {
-  showHitmarker(info.killed && info.isHead ? true : info.killed)
-})
+const weapons = new WeaponController(
+  physics,
+  player,
+  camera,
+  effects,
+  projectiles,
+  playerTarget,
+  (info) => {
+    showHitmarker(info.killed && info.isHead ? true : info.killed)
+    audio.hit(info.killed)
+  },
+  audio,
+)
 
 // ---------- 1v1 duel ----------
 const bot = new Bot(
@@ -193,6 +209,11 @@ const bot = new Bot(
   () => {
     addFeedEntry('<b>YOU</b> BOT 처치')
     duel.botDied()
+  },
+  () => {
+    // bot gunshot, attenuated by distance to the listener
+    const dist = player.position.distanceTo(bot.controller.position)
+    audio.shot('ar', Math.max(0.1, 0.7 * (1 - dist / 70)))
   },
 )
 scene.add(bot.group)
@@ -220,7 +241,15 @@ const duel = new DuelManager({
     bot.reset(map.spawns[1].position.clone(), map.spawns[1].yaw)
     projectiles.clear()
   },
-  onBanner: (text, sub, seconds) => showBanner(text, sub, seconds),
+  onBanner: (text, sub, seconds) => {
+    showBanner(text, sub, seconds)
+    if (text === 'GO!') audio.go()
+    else if (/^[123]$/.test(text)) audio.countdownBeep()
+    else if (text === '승리!') audio.win()
+    else if (text === '패배') audio.lose()
+    else if (text === '라운드 승리!') audio.roundWin()
+    else if (text === '라운드 패배') audio.roundLose()
+  },
   onMatchEnd: () => {
     /* the manager returns to idle after its timer; cleanup happens below */
   },
@@ -341,7 +370,43 @@ function setPlaying(p: boolean) {
 
 let pendingDuel = false
 
+// ---------- settings ----------
+const settings = loadSettings()
+
+function applySettings() {
+  player.sensitivity = 0.0023 * settings.sensitivity
+  audio.setVolume(settings.volume)
+  camera.fov = settings.fov
+  camera.updateProjectionMatrix()
+  weapons.setBaseFov(settings.fov)
+}
+
+function wireSettingSlider(
+  inputId: string,
+  valueId: string,
+  get: () => number,
+  set: (v: number) => void,
+  format: (v: number) => string,
+) {
+  const input = document.querySelector<HTMLInputElement>(inputId)!
+  const label = document.querySelector<HTMLSpanElement>(valueId)!
+  input.value = String(get())
+  label.textContent = format(get())
+  input.addEventListener('input', () => {
+    set(Number(input.value))
+    label.textContent = format(get())
+    applySettings()
+    saveSettings(settings)
+  })
+}
+
+wireSettingSlider('#set-sens', '#set-sens-val', () => settings.sensitivity, (v) => (settings.sensitivity = v), (v) => `${v.toFixed(2)}x`)
+wireSettingSlider('#set-vol', '#set-vol-val', () => settings.volume, (v) => (settings.volume = v), (v) => `${Math.round(v * 100)}%`)
+wireSettingSlider('#set-fov', '#set-fov-val', () => settings.fov, (v) => (settings.fov = v), (v) => `${v}°`)
+applySettings()
+
 async function startGame() {
+  audio.ensure() // AudioContext requires a user gesture
   if (touchMode) {
     // best effort: fullscreen + landscape lock (not available on iOS Safari,
     // where the portrait rotate-overlay is the fallback)
@@ -415,6 +480,33 @@ const HP_REGEN_PER_SECOND = 12
 let lastTime = performance.now()
 let accumulator = 0
 let elapsed = 0
+let damageFlash = 0
+
+// movement-sound state (transitions detected frame to frame)
+let prevGrounded = true
+let prevSliding = false
+let prevDashCharge = 1
+let footstepDist = 0
+
+function updateMovementSounds(dt: number) {
+  const speed = Math.hypot(player.velocity.x, player.velocity.z)
+  if (!prevGrounded && player.grounded) audio.land()
+  if (prevGrounded && !player.grounded && player.velocity.y > 2) audio.jump()
+  if (!prevSliding && player.sliding) audio.slide()
+  if (player.dashCharge < prevDashCharge - 0.4) audio.dash()
+  if (player.grounded && !player.sliding && speed > 3) {
+    footstepDist += speed * dt
+    if (footstepDist > 2.7) {
+      footstepDist = 0
+      audio.footstep()
+    }
+  } else {
+    footstepDist = 0
+  }
+  prevGrounded = player.grounded
+  prevSliding = player.sliding
+  prevDashCharge = player.dashCharge
+}
 
 function frame(now: number) {
   const dt = Math.min((now - lastTime) / 1000, 0.25)
@@ -451,6 +543,7 @@ function frame(now: number) {
     // (high-refresh displays) so taps are never dropped
     if (steps > 0) input.clearPressed()
 
+    if (steps > 0) updateMovementSounds(dt)
     for (const d of dummies) d.update(dt)
     effects.update(dt)
     updateHud()
@@ -472,6 +565,12 @@ function frame(now: number) {
     } else {
       respawn()
     }
+  }
+
+  // hurt vignette fades out over ~0.8s
+  if (damageFlash > 0) {
+    damageFlash = Math.max(0, damageFlash - dt * 1.3)
+    vignette.style.opacity = damageFlash.toFixed(3)
   }
 
   renderer.render(scene, camera)
@@ -517,6 +616,14 @@ requestAnimationFrame(frame)
       botAlive: bot.alive,
       botX: bot.controller.position.x,
       botZ: bot.controller.position.z,
+    }
+  },
+  get polish() {
+    return {
+      fov: camera.fov,
+      sensitivity: player.sensitivity,
+      vignette: vignette.style.opacity,
+      audioState: (audio as unknown as { ctx: AudioContext | null })['ctx']?.state ?? 'none',
     }
   },
   damageBot(amount: number) {

@@ -1,4 +1,5 @@
 import * as THREE from 'three'
+import { AudioEngine } from '../core/audio'
 
 interface Transient {
   object: THREE.Object3D
@@ -15,7 +16,10 @@ export class Effects {
   private sparkMat = new THREE.MeshBasicMaterial({ color: 0xffc36b })
   private boomGeo = new THREE.SphereGeometry(1, 16, 12)
 
-  constructor(private scene: THREE.Scene) {}
+  constructor(
+    private scene: THREE.Scene,
+    private audio?: AudioEngine,
+  ) {}
 
   private add(object: THREE.Object3D, ttl: number, update?: Transient['update']) {
     this.scene.add(object)
@@ -37,6 +41,7 @@ export class Effects {
   }
 
   explosion(point: THREE.Vector3, radius: number) {
+    this.audio?.explosion()
     const mat = new THREE.MeshBasicMaterial({ color: 0xff8b3c, transparent: true, opacity: 0.85 })
     const m = new THREE.Mesh(this.boomGeo, mat)
     m.position.copy(point)
