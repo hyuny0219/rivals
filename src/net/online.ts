@@ -69,10 +69,13 @@ export interface OnlineCallbacks {
   onDisconnect: (reason: string) => void
 }
 
-/** Default server: local dev server when running on localhost, Render otherwise. */
+/** Default server URL. Local dev uses the standalone server on :8081; a
+ * deployed build shares the page's origin (client + WebSocket are one service). */
 export function defaultServerUrl(): string {
   const local = location.hostname === 'localhost' || location.hostname === '127.0.0.1'
-  return local ? 'ws://localhost:8081' : 'wss://rifle-gg-server.onrender.com'
+  if (local) return 'ws://localhost:8081'
+  const proto = location.protocol === 'https:' ? 'wss:' : 'ws:'
+  return `${proto}//${location.host}`
 }
 
 /** WebSocket client for online team matches: lobby handshake + plumbing. */

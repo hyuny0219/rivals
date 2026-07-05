@@ -48,10 +48,27 @@ npm run build    # 프로덕션 빌드 (dist/)
 
 첫 화면에서 **닉네임을 입력하고 입장**하면 로비가 열립니다. 로비에는 **대기방 목록**이
 실시간으로 표시되어 아무 방이나 **참가**를 눌러 바로 입장할 수 있고, **방 만들기**로
-직접 방을 열 수도 있습니다(팀 규모 1v1~4v4, 맵 선택). 코드로 직접 참가도 가능합니다.
-전원이 **시작**을 누르면 5선승 매치가 시작되며, 빈 자리는 봇이 채웁니다.
-게임 서버는 Render 무료 티어라 15분 유휴 후 잠들며, 첫 연결에 ~30초 걸릴 수 있습니다.
+직접 방을 열 수도 있습니다(팀 규모 1v1~4v4, 맵 선택, 빈자리 봇 채우기 on/off, 봇 난이도).
+전원이 **시작**을 누르면 5선승 매치가 시작됩니다. 봇 채우기를 켜면 빈 자리를 봇이 채우고,
+방장은 **봇으로 채우고 시작**으로 인원이 부족해도 즉시 시작할 수 있습니다.
+무료 호스팅은 유휴 시 잠들 수 있어 첫 연결에 수십 초가 걸릴 수 있습니다(클라이언트가 자동 재시도).
 
-로컬 개발 시에는 `node server/index.js`(포트 8081)를 함께 실행하면 됩니다.
+## 배포
+
+클라이언트와 WebSocket 게임 서버는 **하나의 서비스(같은 origin)** 로 동작합니다. 게임 로직은
+런타임 독립 모듈(`server/game.js`)이고, 전송 계층만 런타임별로 다릅니다:
+
+- **Deno Deploy (기본, `console.deno.com` — Apps/Git 빌드)** — 저장소를 앱으로 연결하고
+  아래 빌드 설정을 지정하면 푸시할 때마다 자동 빌드+배포됩니다. WebSocket 지원, 무료 플랜 카드 불필요.
+  - Install Command: `npm install --include=dev` (`vite`/`tsc`가 devDependencies라 필요)
+  - Build Command: `npm run build` (→ `dist/`)
+  - Entrypoint: `server/deno.ts`
+  - Framework preset: **None** (Vite 정적 사이트로 자동 감지되지 않도록)
+- **구버전 Deno Deploy (`dash.deno.com` — Projects/deployctl)** — `.github/workflows/deploy.yml`
+  (수동 실행). 저장소 시크릿 `DENO_DEPLOY_TOKEN`, 선택 `DENO_PROJECT` 필요.
+- **Node 호스트 (Render 등)** — `server/index.js` 진입점. `render.yaml`은 Node 웹 서비스 하나로
+  빌드+구동합니다.
+
+로컬 개발은 `node server/index.js`(포트 8081)를 클라이언트(`npm run dev`)와 함께 실행하면 됩니다.
 
 전체 계획은 [PLAN.md](./PLAN.md) 참고.

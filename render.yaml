@@ -1,20 +1,13 @@
 services:
-  # RIFLE.GG client — static site (practice + bot duel work fully serverless).
+  # RIFLE.GG — single web service: the Node server hosts the built client
+  # AND the WebSocket game server on one origin. Free tier sleeps after 15min
+  # idle; the first connection may take ~30s to wake it (client retries).
   - type: web
     name: rifle-gg
-    runtime: static
-    buildCommand: npm ci && npm run build
-    staticPublishPath: dist
-    headers:
-      - path: /*
-        name: Cache-Control
-        value: no-cache
-
-  # Online 1v1 game server (WebSocket). Free tier sleeps after 15min idle —
-  # the first connection may take ~30s to wake it.
-  - type: web
-    name: rifle-gg-server
     runtime: node
-    rootDir: server
-    buildCommand: npm ci
-    startCommand: node index.js
+    plan: free
+    # --include=dev so vite/tsc (devDependencies) are available for the build,
+    # even though Render sets NODE_ENV=production
+    buildCommand: npm ci --include=dev && npm run build && npm --prefix server ci
+    startCommand: node server/index.js
+    healthCheckPath: /healthz
