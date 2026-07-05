@@ -562,8 +562,9 @@ if (touchMode) {
   touch.bindButton(document.querySelector('#btn-jump')!, 'Space')
   touch.bindButton(document.querySelector('#btn-dash')!, 'ShiftLeft')
   touch.bindButton(document.querySelector('#btn-slide')!, 'KeyC')
-  touch.bindButton(document.querySelector('#btn-fire')!, 'Mouse0')
-  touch.bindButton(document.querySelector('#btn-fire-left')!, 'Mouse0')
+  // fire buttons also steer the view while held (drag-to-aim)
+  touch.bindFireButton(document.querySelector('#btn-fire')!, 'Mouse0')
+  touch.bindFireButton(document.querySelector('#btn-fire-left')!, 'Mouse0')
   touch.bindButton(document.querySelector('#btn-reload')!, 'KeyR')
   for (const btn of document.querySelectorAll<HTMLButtonElement>('.slot-btn')) {
     touch.bindButton(btn, btn.dataset.key!)

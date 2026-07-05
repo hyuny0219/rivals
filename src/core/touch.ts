@@ -60,6 +60,39 @@ export class TouchControls {
     el.addEventListener('pointerleave', release)
   }
 
+  /**
+   * Fire buttons double as a look pad: hold to shoot and drag with the same
+   * thumb to keep turning — the standard mobile-FPS answer to "I can't aim
+   * and fire at once". Pointer capture keeps the drag alive once the finger
+   * slides off the button.
+   */
+  bindFireButton(el: HTMLElement, code: string) {
+    let activeId: number | null = null
+    let lastX = 0
+    let lastY = 0
+    el.addEventListener('pointerdown', (e) => {
+      e.preventDefault()
+      activeId = e.pointerId
+      lastX = e.clientX
+      lastY = e.clientY
+      capture(el, e.pointerId)
+      this.input.virtualDown(code)
+    })
+    el.addEventListener('pointermove', (e) => {
+      if (e.pointerId !== activeId) return
+      this.input.addMouseDelta((e.clientX - lastX) * LOOK_SCALE, (e.clientY - lastY) * LOOK_SCALE)
+      lastX = e.clientX
+      lastY = e.clientY
+    })
+    const release = (e: PointerEvent) => {
+      if (e.pointerId !== activeId) return
+      activeId = null
+      this.input.virtualUp(code)
+    }
+    el.addEventListener('pointerup', release)
+    el.addEventListener('pointercancel', release)
+  }
+
   private onMoveStart = (e: PointerEvent) => {
     if (this.moveId !== null) return
     this.moveId = e.pointerId
