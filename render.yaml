@@ -1,0 +1,12 @@
+services:
+  # RIFLE.GG client — static site (bot duel works fully serverless).
+  # Phase 5 will add a WebSocket game server as a second service here.
+  - type: web
+    name: rifle-gg
+    runtime: static
+    buildCommand: npm ci && npm run build
+    staticPublishPath: dist
+    headers:
+      - path: /*
+        name: Cache-Control
+        value: no-cache
