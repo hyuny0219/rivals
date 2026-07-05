@@ -1,6 +1,7 @@
 import * as THREE from 'three'
 import { Damageable, Hitbox, PhysicsWorld } from '../world/physics'
 import { PeerSnapshot } from '../net/online'
+import { makeNameplate, disposeNameplate } from '../render/nameplate'
 
 const HEAD = { w: 0.4, h: 0.4 }
 const TORSO = { w: 0.8, h: 0.85, d: 0.42 }
@@ -70,10 +71,18 @@ export class RemotePlayer implements Damageable {
     return false
   }
 
-  setAppearance(name: string, team: number, color: number) {
+  private plate: THREE.Sprite | null = null
+
+  setAppearance(name: string, team: number, color: number, isAlly: boolean) {
     this.name = name
     this.team = team
     this.torsoMat.color.setHex(color)
+    if (this.plate) {
+      this.group.remove(this.plate)
+      disposeNameplate(this.plate)
+    }
+    this.plate = makeNameplate(name, isAlly ? '#57d38c' : '#ff8a75', isAlly)
+    this.group.add(this.plate)
   }
 
   activate(position: THREE.Vector3, yaw: number) {

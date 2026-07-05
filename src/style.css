@@ -217,6 +217,11 @@ body {
   display: none;
 }
 
+#alive-row {
+  pointer-events: auto; /* tap to toggle the scoreboard on touch */
+  cursor: pointer;
+}
+
 #alive-allies {
   color: #57d38c;
 }
@@ -758,6 +763,76 @@ body {
   background: #ff5a3c;
   border-radius: 4px;
   transition: width 0.12s ease;
+}
+
+/* scoreboard (hold Tab / tap the pips) */
+#scoreboard {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  min-width: 380px;
+  background: rgba(10, 14, 22, 0.85);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 12px;
+  padding: 16px 24px 20px;
+  color: #eef2f7;
+}
+
+#scoreboard.hidden {
+  display: none;
+}
+
+#scoreboard h3 {
+  text-align: center;
+  font-size: 18px;
+  font-weight: 800;
+  margin-bottom: 12px;
+}
+
+#sb-score {
+  color: #9fb0c3;
+  font-weight: 600;
+  margin-left: 8px;
+}
+
+.sb-cols {
+  display: flex;
+  gap: 28px;
+  justify-content: center;
+}
+
+.sb-cols h4 {
+  font-size: 13px;
+  letter-spacing: 1px;
+  margin-bottom: 6px;
+}
+
+.sb-ally {
+  color: #57d38c;
+}
+
+.sb-enemy {
+  color: #ff5a3c;
+}
+
+.sb-cols ul {
+  list-style: none;
+  min-width: 140px;
+}
+
+.sb-cols li {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 3px 0;
+  font-size: 14px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.sb-cols li.dead {
+  color: #6b7684;
+  text-decoration: line-through;
 }
 
 /* kill feed (top-right) */
