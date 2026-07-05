@@ -100,7 +100,7 @@ scene.add(sun)
 
 // ---------- world / player ----------
 const physics = new PhysicsWorld()
-let map = buildMap(physics, MAPS[0].theme)
+let map = buildMap(physics, MAPS[0])
 scene.add(map.group)
 let currentMapId = MAPS[0].id
 
@@ -117,7 +117,7 @@ function loadMap(mapId: string) {
     }
   })
   physics.clearColliders()
-  map = buildMap(physics, def.theme)
+  map = buildMap(physics, def)
   scene.add(map.group)
 
   const t = def.theme
@@ -1028,7 +1028,7 @@ async function startGame() {
 playBtn.addEventListener('click', () => {
   if (online.active) return // cancel the online room first
   pendingDuel = false
-  loadMap(resolveMapId()) // practice uses the chosen arena too
+  loadMap('foundry') // practice range is always Foundry (fixed dummy layout)
   void startGame()
 })
 duelBtn.addEventListener('click', () => {
@@ -1394,6 +1394,10 @@ requestAnimationFrame(frame)
   },
   get map() {
     return { id: currentMapId, sky: (scene.background as THREE.Color).getHex(), colliders: physics.colliders.length }
+  },
+  /** Load a map's structure for inspection without starting a match (tests). */
+  previewMap(id: string) {
+    if (!online.active && !duel.active) loadMap(id)
   },
   get polish() {
     return {
