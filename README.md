@@ -33,7 +33,7 @@ npm run build    # 프로덕션 빌드 (dist/)
 - [x] Phase 0 — Three.js + TypeScript + Vite 셋업
 - [x] Phase 1 — FPS 무브먼트 (대시/슬라이드/계단), 로우폴리 1v1 맵 "Foundry", 모바일 터치 지원
 - [x] Phase 2 — 무기/전투 시스템 (무기 7종, 히트스캔/투사체, 표적 더미, 전투 HUD)
-- [ ] Phase 3 — 1v1 듀얼 게임 루프 + 봇 AI
+- [x] Phase 3 — 1v1 듀얼 게임 루프 (5선승 라운드, 봇 AI 난이도 3종, 로드아웃 선택)
 - [ ] Phase 4 — 사운드/이펙트 폴리시
 - [ ] Phase 5 — 온라인 멀티플레이 (1v1 방 코드)
 
