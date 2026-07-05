@@ -32,7 +32,21 @@ const DAMAGE_CAP = {
   knife: 55,
   grenade: 100,
 }
-const MAX_CLAIMS_PER_SECOND = 25 // per attacker entity
+// Per-weapon damage-claim throttle (token bucket per attacker+weapon). `rate`
+// (tokens/sec) sits a little above each weapon's real fire rate (rpm/60) so
+// legit fire never starves; `burst` absorbs claims that arrive batched after a
+// latency spike. Sustained DPS is thus bounded to ~rate × DAMAGE_CAP — e.g.
+// sniper drops from ~4750/s (old flat cap) to ~230/s. Grenade's burst covers a
+// single blast hitting every fighter in a 4v4.
+const CLAIM_LIMIT = {
+  ar: { rate: 12, burst: 8 }, //     600rpm = 10/s
+  shotgun: { rate: 2.2, burst: 4 }, // 78rpm = 1.3/s
+  sniper: { rate: 1.2, burst: 2 }, //  42rpm = 0.7/s
+  pistol: { rate: 7, burst: 5 }, //   330rpm = 5.5/s
+  uzi: { rate: 18, burst: 10 }, //    900rpm = 15/s
+  knife: { rate: 3.5, burst: 3 }, //  140rpm = 2.3/s
+  grenade: { rate: 1.5, burst: 8 }, // one blast can hit all 8 in a 4v4
+}
 
 const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
 const MAP_IDS = ['foundry', 'sandstorm', 'neon', 'frost', 'jungle']
@@ -105,7 +119,7 @@ class Room {
     this.timer = null
     this.destroyed = false
     this.nextPlayerNum = 1
-    this.claimWindows = new Map() // attacker id -> timestamps
+    this.buckets = new Map() // attacker id -> Map(weapon -> {tokens, last})
     this.touch()
   }
 
@@ -254,12 +268,25 @@ class Room {
     )
   }
 
-  rateOk(attackerId) {
-    const now = Date.now()
-    const window = (this.claimWindows.get(attackerId) ?? []).filter((t) => now - t < 1000)
-    window.push(now)
-    this.claimWindows.set(attackerId, window)
-    return window.length <= MAX_CLAIMS_PER_SECOND
+  /** Token-bucket throttle bounding a weapon's claim rate to its fire rate. */
+  claimOk(attackerId, weapon, now) {
+    const limit = Object.hasOwn(CLAIM_LIMIT, weapon) ? CLAIM_LIMIT[weapon] : null
+    if (!limit) return false
+    let byWeapon = this.buckets.get(attackerId)
+    if (!byWeapon) {
+      byWeapon = new Map()
+      this.buckets.set(attackerId, byWeapon)
+    }
+    let b = byWeapon.get(weapon)
+    if (!b) {
+      b = { tokens: limit.burst, last: now }
+      byWeapon.set(weapon, b)
+    }
+    b.tokens = Math.min(limit.burst, b.tokens + ((now - b.last) / 1000) * limit.rate)
+    b.last = now
+    if (b.tokens < 1) return false
+    b.tokens -= 1
+    return true
   }
 
   handleHit(conn, msg) {
@@ -277,9 +304,10 @@ class Room {
     if (attacker.hp <= 0 || target.hp <= 0) return
     // friendly fire is off (self-damage allowed)
     if (attacker.team === target.team && attackerId !== String(msg.target)) return
-    if (!this.rateOk(attackerId)) return
-    const cap = Object.hasOwn(DAMAGE_CAP, msg.weapon) ? DAMAGE_CAP[msg.weapon] : 0
+    const weapon = String(msg.weapon ?? '')
+    const cap = Object.hasOwn(DAMAGE_CAP, weapon) ? DAMAGE_CAP[weapon] : 0
     if (!cap) return
+    if (!this.claimOk(attackerId, weapon, Date.now())) return
     const damage = Math.min(Math.max(0, Math.round(Number(msg.damage) || 0)), cap)
     if (damage <= 0) return
 
