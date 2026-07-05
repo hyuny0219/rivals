@@ -172,6 +172,65 @@ body {
   display: none;
 }
 
+#teamsize-row {
+  margin-top: 14px;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: center;
+}
+
+.size-btn {
+  padding: 7px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #cdd8e4;
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.size-btn.active {
+  background: #ff5a3c;
+  border-color: #ff5a3c;
+  color: #fff;
+}
+
+/* team alive pips under the score */
+#alive-row {
+  position: absolute;
+  top: 62px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  background: rgba(10, 14, 22, 0.55);
+  padding: 3px 12px;
+  border-radius: 6px;
+  font-size: 13px;
+  letter-spacing: 2px;
+}
+
+#alive-row.hidden {
+  display: none;
+}
+
+#alive-allies {
+  color: #57d38c;
+}
+
+#alive-enemies {
+  color: #ff5a3c;
+}
+
+.alive-vs {
+  color: #8494a8;
+  font-size: 11px;
+  letter-spacing: 0;
+}
+
 #difficulty-row,
 .loadout-group {
   margin-top: 18px;

@@ -1,6 +1,6 @@
 import * as THREE from 'three'
 import { ControlSource, PlayerController } from '../player/controller'
-import { Damageable, Hitbox, PhysicsWorld } from '../world/physics'
+import { Damageable, Hitbox, PhysicsWorld, isFriendly } from '../world/physics'
 import { Effects } from '../combat/effects'
 import { WEAPONS } from '../combat/weapons'
 import { createRng } from '../combat/rng'
@@ -62,13 +62,17 @@ class BotControls implements ControlSource {
   }
 }
 
+export type BotTarget = Damageable & { position: THREE.Vector3 }
+
 /**
- * 1v1 duel opponent: runs the same movement physics as the player through a
- * virtual control source; navigates via the center doorway, strafes in
- * combat, and fires bursts with difficulty-scaled aim error.
+ * Duel/team-battle combatant: runs the same movement physics as the player
+ * through a virtual control source; picks the nearest live enemy, navigates
+ * via the center doorway, strafes in combat, and fires bursts with
+ * difficulty-scaled aim error. Friendly fire is blocked.
  */
 export class Bot implements Damageable {
-  readonly name = 'BOT'
+  readonly name: string
+  readonly team: number
   readonly center = new THREE.Vector3()
   alive = true
   hp = MAX_HP
@@ -79,6 +83,8 @@ export class Bot implements Damageable {
   private params: DifficultyParams = DIFFICULTY.normal
   private rng = createRng(0xb07)
   private weapon = WEAPONS.ar
+  private currentTarget: BotTarget | null = null
+  private retargetTimer = 0
 
   private sawPlayerFor = 0
   private burstLeft = 0
@@ -104,11 +110,16 @@ export class Bot implements Damageable {
   constructor(
     private world: PhysicsWorld,
     private effects: Effects,
-    private target: Damageable & { position: THREE.Vector3 },
+    opts: { name: string; team: number; color: number; seed?: number },
+    /** Live list of potential enemies (filtered by alive/team here). */
+    private getEnemies: () => BotTarget[],
     private onShotHit: (damage: number, killed: boolean) => void,
-    private onDied: () => void,
+    private onDied: (bot: Bot) => void,
     private onFired?: () => void,
   ) {
+    this.name = opts.name
+    this.team = opts.team
+    this.rng = createRng(opts.seed ?? 0xb07)
     this.controller = new PlayerController(world) // headless
 
     const mat = (color: number) => new THREE.MeshLambertMaterial({ color })
@@ -116,7 +127,7 @@ export class Bot implements Damageable {
     legL.position.set(-0.21, LEGS_H / 2, 0)
     const legR = legL.clone()
     legR.position.x = 0.21
-    const torso = new THREE.Mesh(new THREE.BoxGeometry(TORSO.w, TORSO.h, TORSO.d), mat(0xc94f4f))
+    const torso = new THREE.Mesh(new THREE.BoxGeometry(TORSO.w, TORSO.h, TORSO.d), mat(opts.color))
     torso.position.y = LEGS_H + TORSO.h / 2
     const head = new THREE.Mesh(new THREE.BoxGeometry(HEAD.w, HEAD.h, HEAD.w), mat(0xf2c14e))
     head.position.y = LEGS_H + TORSO.h + HEAD.h / 2
@@ -131,6 +142,11 @@ export class Bot implements Damageable {
     this.bodyBox = { entity: this, part: 'body', box: new THREE.Box3() }
     world.addHitbox(this.headBox)
     world.addHitbox(this.bodyBox)
+  }
+
+  /** Feet position (BotTarget contract, same shape as the player proxy). */
+  get position(): THREE.Vector3 {
+    return this.controller.position
   }
 
   setDifficulty(d: Difficulty) {
@@ -148,8 +164,15 @@ export class Bot implements Damageable {
     this.stuckTimer = 0
     this.stuckAccum = 0
     this.avoidTimer = 0
+    this.currentTarget = null
+    this.retargetTimer = 0
     this.lastPos.copy(position)
     this.syncBody()
+  }
+
+  deactivate() {
+    this.alive = false
+    this.group.visible = false
   }
 
   takeDamage(amount: number, _isHead: boolean): boolean {
@@ -159,32 +182,63 @@ export class Bot implements Damageable {
       this.alive = false
       this.group.visible = false
       this.effects.puff(this.center, 0xc94f4f)
-      this.onDied()
+      this.onDied(this)
       return true
     }
     return false
   }
 
+  /** Nearest live enemy; re-evaluated periodically or when the target dies. */
+  private pickTarget(dt: number): BotTarget | null {
+    this.retargetTimer -= dt
+    if (this.currentTarget?.alive && this.retargetTimer > 0) return this.currentTarget
+    this.retargetTimer = 0.5
+    const pos = this.controller.position
+    let best: BotTarget | null = null
+    let bestDist = Infinity
+    for (const enemy of this.getEnemies()) {
+      if (!enemy.alive) continue
+      const d = pos.distanceToSquared(enemy.position)
+      if (d < bestDist) {
+        bestDist = d
+        best = enemy
+      }
+    }
+    this.currentTarget = best
+    return best
+  }
+
   /** One fixed physics step. */
   update(dt: number) {
     if (!this.alive) return
+    const target = this.pickTarget(dt)
     const pos = this.controller.position
     this.vEye.set(pos.x, pos.y + EYE, pos.z)
+
+    if (!target) {
+      // nobody left to fight — hold position
+      this.controls.touchMoveX = 0
+      this.controls.touchMoveY = 0
+      this.controller.update(dt, this.controls)
+      this.controls.endStep()
+      this.syncBody()
+      return
+    }
+
     // aim at the target's mass center: it tracks stance (slide) so shots
     // stay inside the actual hitbox
-    this.vTargetEye.copy(this.target.center)
-
+    this.vTargetEye.copy(target.center)
     const dist = this.vEye.distanceTo(this.vTargetEye)
-    const los = this.hasLineOfSight(dist)
+    const los = this.hasLineOfSight(target, dist)
 
-    if (los && this.target.alive) {
+    if (los) {
       this.sawPlayerFor += dt
-      this.combatMove(dt, dist)
+      this.combatMove(dt, dist, target)
       this.aimAndFire(dt)
     } else {
       this.sawPlayerFor = 0
       this.burstLeft = 0
-      this.navigateToPlayer(dt)
+      this.navigateToward(dt, target)
     }
 
     this.controller.update(dt, this.controls)
@@ -192,13 +246,14 @@ export class Bot implements Damageable {
     this.syncBody()
   }
 
-  private hasLineOfSight(dist: number): boolean {
+  private hasLineOfSight(target: BotTarget, dist: number): boolean {
     if (dist > this.params.engageRange) return false
     this.vDir.copy(this.vTargetEye).sub(this.vEye).divideScalar(dist)
     const hit = this.world.raycast(this.vEye, this.vDir, dist, this)
-    // anything hit before reaching the player's eye is an obstruction,
-    // unless it is the player's own hitbox
-    return !hit || hit.hitbox?.entity === this.target
+    // anything hit before reaching the target's eye is an obstruction
+    // (including teammates — don't shoot through allies), unless it is the
+    // target's own hitbox
+    return !hit || hit.hitbox?.entity === target
   }
 
   /** Face a world direction and translate it into local move axes. */
@@ -213,9 +268,9 @@ export class Bot implements Damageable {
     this.controls.touchMoveX = strafeAmount
   }
 
-  private navigateToPlayer(dt: number) {
+  private navigateToward(dt: number, target: BotTarget) {
     const pos = this.controller.position
-    const t = this.target.position
+    const t = target.position
     // the center wall splits the arena at x=0 with a doorway near z=0;
     // approach it on an offset lane that clears the crates at (±14, 0)
     let goal = t
@@ -252,7 +307,7 @@ export class Bot implements Damageable {
     }
   }
 
-  private combatMove(dt: number, dist: number) {
+  private combatMove(dt: number, dist: number, target: BotTarget) {
     this.strafeTimer -= dt
     if (this.strafeTimer <= 0) {
       this.strafeDir = this.rng() < 0.5 ? -1 : 1
@@ -261,7 +316,7 @@ export class Bot implements Damageable {
     }
     // keep a medium engagement distance while strafing
     const forward = dist > 18 ? 0.7 : dist < 7 ? -0.6 : 0
-    this.steerToward(this.target.position.x, this.target.position.z, forward, this.strafeDir, dt)
+    this.steerToward(target.position.x, target.position.z, forward, this.strafeDir, dt)
   }
 
   private aimAndFire(dt: number) {
@@ -293,10 +348,10 @@ export class Bot implements Damageable {
     this.effects.tracer(this.vEye.clone().addScaledVector(this.vDir, 0.6), end)
     if (!hit) return
     this.effects.impact(hit.point)
-    if (hit.hitbox && hit.hitbox.entity === this.target) {
+    if (hit.hitbox && !isFriendly(this.team, hit.hitbox.entity)) {
       const isHead = hit.hitbox.part === 'head'
       const damage = Math.round(this.weapon.damage * (isHead ? this.weapon.headshotMult : 1))
-      const killed = this.target.takeDamage(damage, isHead)
+      const killed = hit.hitbox.entity.takeDamage(damage, isHead)
       this.onShotHit(damage, killed)
     }
   }

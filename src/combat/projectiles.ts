@@ -1,5 +1,5 @@
 import * as THREE from 'three'
-import { Damageable, PhysicsWorld } from '../world/physics'
+import { Damageable, PhysicsWorld, isFriendly } from '../world/physics'
 import { Effects } from './effects'
 
 const GRAVITY = 22
@@ -14,6 +14,8 @@ interface Grenade {
   fuse: number
   radius: number
   maxDamage: number
+  /** Thrower: self-damage applies, teammates are spared. */
+  source: Damageable | null
 }
 
 /** Thrown grenades: bouncing AABB physics + timed radial explosion. */
@@ -33,7 +35,7 @@ export class ProjectileManager {
     private onExplosionHit: (target: Damageable, damage: number, killed: boolean) => void,
   ) {}
 
-  throwGrenade(origin: THREE.Vector3, dir: THREE.Vector3, radius: number, maxDamage: number) {
+  throwGrenade(origin: THREE.Vector3, dir: THREE.Vector3, radius: number, maxDamage: number, source: Damageable | null = null) {
     const mesh = new THREE.Mesh(this.geo, this.mat)
     mesh.position.copy(origin)
     this.scene.add(mesh)
@@ -43,6 +45,7 @@ export class ProjectileManager {
       fuse: FUSE_SECONDS,
       radius,
       maxDamage,
+      source,
     })
   }
 
@@ -121,6 +124,8 @@ export class ProjectileManager {
     this.effects.explosion(at, g.radius)
     for (const target of this.targets()) {
       if (!target.alive) continue
+      // no team damage — but your own grenade still hurts you
+      if (target !== g.source && isFriendly(g.source?.team, target)) continue
       const dist = target.center.distanceTo(at)
       if (dist > g.radius) continue
       // occlusion: static world geometry blocks the blast (other entities don't)

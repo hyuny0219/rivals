@@ -53,16 +53,12 @@ export class DuelManager {
     this.cb.onRoundStart(this.round)
   }
 
-  playerDied() {
+  /** Called when one side is fully eliminated. */
+  roundWon(playerTeamWon: boolean) {
     if (this.state !== 'combat') return
-    this.botScore++
-    this.endRound(false)
-  }
-
-  botDied() {
-    if (this.state !== 'combat') return
-    this.playerScore++
-    this.endRound(true)
+    if (playerTeamWon) this.playerScore++
+    else this.botScore++
+    this.endRound(playerTeamWon)
   }
 
   private endRound(playerWon: boolean) {
