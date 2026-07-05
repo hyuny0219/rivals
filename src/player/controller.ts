@@ -279,6 +279,56 @@ export class PlayerController {
     this.moveAxis('x', this.velocity.x * dt, wasGrounded)
     this.moveAxis('y', this.velocity.y * dt, wasGrounded)
     this.moveAxis('z', this.velocity.z * dt, wasGrounded)
+    this.depenetrate()
+  }
+
+  /**
+   * Safety net: guarantee the player is never left embedded in a collider.
+   * Per-axis sweeps resolve almost everything, but a fast dash into a corner
+   * or a knockback can wedge the box between two boxes; if so, push out along
+   * the shallowest axis so the player can't get stuck inside terrain.
+   */
+  private depenetrate() {
+    for (let iter = 0; iter < 4; iter++) {
+      this.computeBox(this.box, this.position, this.height)
+      let deepest = 0
+      let axis: 'x' | 'y' | 'z' = 'x'
+      let move = 0
+      for (const c of this.world.colliders) {
+        if (!c.intersectsBox(this.box)) continue
+        // signed clear distance on each side; the smaller magnitude wins
+        const xL = this.box.max.x - c.min.x // move -x by this to clear
+        const xR = c.max.x - this.box.min.x // move +x by this to clear
+        const yD = this.box.max.y - c.min.y // move -y (down)
+        const yU = c.max.y - this.box.min.y // move +y (up)
+        const zB = this.box.max.z - c.min.z
+        const zF = c.max.z - this.box.min.z
+        const px = Math.min(xL, xR)
+        const py = Math.min(yD, yU)
+        const pz = Math.min(zB, zF)
+        const p = Math.min(px, py, pz)
+        if (p <= EPS || p <= deepest) continue
+        deepest = p
+        if (px === p) {
+          axis = 'x'
+          move = xL < xR ? -xL - EPS : xR + EPS
+        } else if (pz === p) {
+          axis = 'z'
+          move = zB < zF ? -zB - EPS : zF + EPS
+        } else {
+          axis = 'y'
+          move = yD < yU ? -yD - EPS : yU + EPS
+        }
+      }
+      if (deepest <= EPS) break
+      this.position[axis] += move
+      if (axis === 'y') {
+        this.velocity.y = 0
+        if (move > 0) this.grounded = true // pushed up onto a surface
+      } else {
+        this.velocity[axis] = 0
+      }
+    }
   }
 
   private moveAxis(axis: 'x' | 'y' | 'z', amount: number, wasGrounded: boolean) {
