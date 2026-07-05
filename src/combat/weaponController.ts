@@ -347,6 +347,8 @@ export class WeaponController {
   // ---------- viewmodel ----------
 
   private buildViewmodel() {
+    // dispose the previous frame's meshes (cylinders included); the shared
+    // flash mesh survives across rebuilds
     this.viewmodel.traverse((o) => {
       if (o instanceof THREE.Mesh && o !== this.flashMesh) {
         o.geometry.dispose()
@@ -359,29 +361,75 @@ export class WeaponController {
     const dark = new THREE.MeshLambertMaterial({ color: 0x2c343d })
     const accent = new THREE.MeshLambertMaterial({ color: 0xff5a3c })
     const grip = new THREE.MeshLambertMaterial({ color: 0x1d232a })
-    const boxMesh = (mat: THREE.Material, w_: number, h: number, d: number, x: number, y: number, z: number) => {
+    const steel = new THREE.MeshLambertMaterial({ color: 0x8b97a3 })
+    const wood = new THREE.MeshLambertMaterial({ color: 0x7a4a24 })
+    const box = (mat: THREE.Material, w_: number, h: number, d: number, x: number, y: number, z: number) => {
       const m = new THREE.Mesh(new THREE.BoxGeometry(w_, h, d), mat)
+      m.position.set(x, y, z)
+      this.viewmodel.add(m)
+      return m
+    }
+    const cyl = (mat: THREE.Material, r: number, len: number, x: number, y: number, z: number) => {
+      const m = new THREE.Mesh(new THREE.CylinderGeometry(r, r, len, 10), mat)
+      m.rotation.x = Math.PI / 2 // lie along -z
       m.position.set(x, y, z)
       this.viewmodel.add(m)
       return m
     }
 
     if (w.kind === 'melee') {
-      boxMesh(grip, 0.05, 0.14, 0.05, 0, -0.05, 0) // handle
-      boxMesh(new THREE.MeshLambertMaterial({ color: 0xc8d2dc }), 0.012, 0.06, 0.34, 0, 0.02, -0.22) // blade
+      box(grip, 0.05, 0.14, 0.05, 0, -0.05, 0) // handle
+      box(new THREE.MeshLambertMaterial({ color: 0xc8d2dc }), 0.012, 0.06, 0.34, 0, 0.02, -0.22) // blade
       this.muzzle.position.set(0, 0, -0.3)
     } else if (w.kind === 'projectile') {
       const nade = new THREE.Mesh(new THREE.SphereGeometry(0.09, 10, 8), dark)
       this.viewmodel.add(nade)
       this.muzzle.position.set(0, 0, -0.15)
+    } else if (w.id === 'sniper') {
+      // long body, big scope with rings, muzzle brake, bipod
+      box(dark, 0.06, 0.09, 0.82, 0, 0, -0.41)
+      box(wood, 0.062, 0.1, 0.24, 0, -0.005, -0.04) // wood stock section
+      cyl(dark, 0.02, 0.32, 0, 0.02, -0.86) // long barrel
+      box(dark, 0.05, 0.05, 0.09, 0, 0.02, -1.02) // muzzle brake
+      cyl(dark, 0.035, 0.2, 0, 0.11, -0.34) // scope tube
+      box(steel, 0.05, 0.05, 0.02, 0, 0.11, -0.26) // scope ring front
+      box(steel, 0.05, 0.05, 0.02, 0, 0.11, -0.42) // scope ring rear
+      box(grip, 0.05, 0.14, 0.06, 0, -0.11, 0.02)
+      box(steel, 0.02, 0.16, 0.02, 0.05, -0.14, -0.7) // bipod leg
+      box(steel, 0.02, 0.16, 0.02, -0.05, -0.14, -0.7)
+      this.muzzle.position.set(0, 0.02, -1.08)
+    } else if (w.id === 'shotgun') {
+      // wide receiver, double-tube (barrel + pump), wood, short
+      box(dark, 0.09, 0.11, 0.5, 0, 0, -0.25)
+      box(wood, 0.09, 0.11, 0.16, 0, 0, 0.03) // wood stock
+      cyl(steel, 0.028, 0.42, 0, 0.035, -0.5) // barrel
+      cyl(wood, 0.03, 0.3, 0, -0.03, -0.44) // pump under barrel
+      box(grip, 0.05, 0.14, 0.06, 0, -0.11, 0.0)
+      this.muzzle.position.set(0, 0.035, -0.72)
+    } else if (w.id === 'uzi') {
+      // stubby boxy body, magazine sticking straight down, wire stock
+      box(dark, 0.06, 0.11, 0.3, 0, 0, -0.15)
+      cyl(dark, 0.018, 0.14, 0, 0.02, -0.34) // short barrel
+      box(grip, 0.05, 0.22, 0.06, 0, -0.16, -0.06) // long downward magazine
+      box(grip, 0.05, 0.1, 0.05, 0, -0.09, 0.04) // rear grip
+      box(steel, 0.04, 0.02, 0.14, 0, 0.02, 0.12) // wire stock stub
+      this.muzzle.position.set(0, 0.02, -0.42)
+    } else if (w.id === 'pistol') {
+      // slide + frame silhouette, short
+      box(dark, 0.055, 0.07, 0.26, 0, 0.02, -0.13) // slide
+      box(dark, 0.05, 0.05, 0.24, 0, -0.02, -0.12) // frame
+      box(grip, 0.05, 0.13, 0.06, 0, -0.11, 0.03) // angled grip
+      box(accent, 0.02, 0.02, 0.02, 0, 0.06, -0.24) // front sight dot
+      this.muzzle.position.set(0, 0.02, -0.28)
     } else {
-      const len = w.id === 'sniper' ? 0.75 : w.id === 'shotgun' ? 0.6 : w.id === 'pistol' ? 0.3 : w.id === 'uzi' ? 0.35 : 0.55
-      boxMesh(dark, 0.07, 0.11, len, 0, 0, -len / 2) // body
-      boxMesh(dark, 0.035, 0.035, 0.22, 0, 0.02, -len - 0.1) // barrel
-      boxMesh(grip, 0.05, 0.14, 0.06, 0, -0.11, 0.02) // grip
-      if (w.id !== 'pistol') boxMesh(grip, 0.05, 0.12, 0.05, 0, -0.1, -len * 0.55) // front grip / mag
-      boxMesh(accent, 0.072, 0.02, 0.1, 0, 0.065, -len * 0.3) // sight rail accent
-      this.muzzle.position.set(0, 0.02, -len - 0.22)
+      // assault rifle: standard body, curved-look magazine, rail + carry sight
+      box(dark, 0.06, 0.1, 0.56, 0, 0, -0.28)
+      cyl(dark, 0.018, 0.24, 0, 0.02, -0.6) // barrel
+      box(grip, 0.055, 0.18, 0.08, 0, -0.13, -0.16) // magazine (forward)
+      box(grip, 0.05, 0.14, 0.06, 0, -0.11, 0.04) // grip
+      box(accent, 0.045, 0.03, 0.24, 0, 0.065, -0.28) // top rail accent
+      box(dark, 0.03, 0.05, 0.04, 0, 0.09, -0.14) // carry sight
+      this.muzzle.position.set(0, 0.02, -0.74)
     }
     // reusable muzzle flash (light + glow sphere) rides on the muzzle
     this.flashLight.intensity = 0
