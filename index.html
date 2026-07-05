@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
+    />
+    <title>RIFLE.GG</title>
+    <meta name="description" content="브라우저에서 바로 플레이하는 아레나 FPS" />
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23ff5a3c'/%3E%3Ccircle cx='16' cy='16' r='7' fill='none' stroke='white' stroke-width='2.5'/%3E%3Ccircle cx='16' cy='16' r='2' fill='white'/%3E%3C/svg%3E"
+    />
+  </head>
+  <body>
+    <canvas id="game"></canvas>
+
+    <div id="hud" class="hidden">
+      <div id="crosshair"><i></i><i></i><i></i><i></i></div>
+      <div id="hitmarker"><i></i><i></i><i></i><i></i></div>
+      <div id="dash-indicator"><span id="dash-fill"></span><label>대시 (Shift)</label></div>
+
+      <div id="hp-wrap">
+        <div id="hp-bar"><span id="hp-fill"></span></div>
+        <span id="hp-num">100</span>
+      </div>
+
+      <div id="ammo-wrap">
+        <div id="ammo-line"><span id="ammo-mag">30</span><span id="ammo-max">/ 30</span></div>
+        <div id="weapon-name">돌격소총</div>
+        <div id="weapon-slots"><span data-slot="1"></span><span data-slot="2"></span><span data-slot="3"></span><span data-slot="4"></span></div>
+      </div>
+
+      <div id="killfeed"></div>
+
+      <div id="score-wrap" class="hidden">
+        <span class="score-name">YOU</span>
+        <span id="score-player">0</span>
+        <span class="score-sep">:</span>
+        <span id="score-bot">0</span>
+        <span class="score-name">BOT</span>
+      </div>
+      <div id="banner" class="hidden">
+        <div id="banner-main"></div>
+        <div id="banner-sub"></div>
+      </div>
+      <div id="bot-hp-wrap" class="hidden"><span id="bot-hp-fill"></span></div>
+
+      <!-- touch-only controls (shown via body.touch) -->
+      <div id="touch-move-zone" class="touch-zone"></div>
+      <div id="touch-look-zone" class="touch-zone"></div>
+      <div id="joy-base"><div id="joy-knob"></div></div>
+      <button id="btn-jump" class="touch-btn">점프</button>
+      <button id="btn-dash" class="touch-btn">대시</button>
+      <button id="btn-slide" class="touch-btn">슬라이드</button>
+      <button id="btn-fire" class="touch-btn">발사</button>
+      <button id="btn-ads" class="touch-btn">조준</button>
+      <button id="btn-reload" class="touch-btn">장전</button>
+      <div id="touch-slots">
+        <button class="touch-btn slot-btn" data-key="Digit1">1</button>
+        <button class="touch-btn slot-btn" data-key="Digit2">2</button>
+        <button class="touch-btn slot-btn" data-key="Digit3">3</button>
+        <button class="touch-btn slot-btn" data-key="Digit4">4</button>
+      </div>
+      <button id="btn-pause" class="touch-btn">❚❚</button>
+    </div>
+
+    <div id="vignette"></div>
+
+    <div id="rotate-overlay">
+      <div>
+        <div class="rotate-icon">📱↻</div>
+        <p>기기를 가로로 돌려주세요</p>
+      </div>
+    </div>
+
+    <div id="menu">
+      <div class="menu-inner">
+        <h1>RIFLE<span>.GG</span></h1>
+        <p class="tagline">웹 기반 아레나 FPS</p>
+
+        <div id="mode-row">
+          <button id="play-btn">연습장</button>
+          <button id="duel-btn">1v1 봇 대전</button>
+        </div>
+
+        <div id="difficulty-row">
+          <span class="row-label">봇 난이도</span>
+          <button class="diff-btn" data-diff="easy">쉬움</button>
+          <button class="diff-btn active" data-diff="normal">보통</button>
+          <button class="diff-btn" data-diff="hard">어려움</button>
+        </div>
+
+        <details id="settings-panel">
+          <summary>설정</summary>
+          <div class="setting-row">
+            <span class="row-label">마우스 감도</span>
+            <input id="set-sens" type="range" min="0.3" max="3" step="0.05" />
+            <span id="set-sens-val" class="setting-val"></span>
+          </div>
+          <div class="setting-row">
+            <span class="row-label">볼륨</span>
+            <input id="set-vol" type="range" min="0" max="1" step="0.05" />
+            <span id="set-vol-val" class="setting-val"></span>
+          </div>
+          <div class="setting-row">
+            <span class="row-label">FOV</span>
+            <input id="set-fov" type="range" min="60" max="110" step="1" />
+            <span id="set-fov-val" class="setting-val"></span>
+          </div>
+        </details>
+
+        <div id="loadout-row">
+          <div class="loadout-group">
+            <span class="row-label">주무기</span>
+            <button class="loadout-btn primary-btn active" data-id="ar">돌격소총</button>
+            <button class="loadout-btn primary-btn" data-id="shotgun">샷건</button>
+            <button class="loadout-btn primary-btn" data-id="sniper">저격총</button>
+          </div>
+          <div class="loadout-group">
+            <span class="row-label">보조무기</span>
+            <button class="loadout-btn secondary-btn active" data-id="pistol">권총</button>
+            <button class="loadout-btn secondary-btn" data-id="uzi">우지</button>
+          </div>
+        </div>
+        <div class="controls">
+          <span class="desktop-help"
+            ><b>WASD</b> 이동 · <b>Space</b> 점프 · <b>Shift</b> 대시 · <b>C</b> 슬라이드 · <b>클릭</b> 발사 ·
+            <b>우클릭</b> 조준 · <b>R</b> 장전 · <b>1~4</b> 무기 (같은 키 재입력 시 교체)</span
+          >
+          <span class="touch-help"
+            ><b>왼쪽</b> 조이스틱 이동 · <b>오른쪽</b> 드래그 시점 · 버튼으로 점프/대시/슬라이드</span
+          >
+        </div>
+      </div>
+    </div>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

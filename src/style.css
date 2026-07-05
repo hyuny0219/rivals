@@ -1,0 +1,759 @@
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html,
+body {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: #0e1420;
+  font-family: 'Segoe UI', 'Apple SD Gothic Neo', sans-serif;
+  user-select: none;
+  touch-action: none;
+  -webkit-touch-callout: none;
+}
+
+#game {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+/* ---------- menu overlay ---------- */
+#menu {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(10, 14, 22, 0.82);
+  backdrop-filter: blur(6px);
+  z-index: 10;
+}
+
+#menu.hidden {
+  display: none;
+}
+
+.menu-inner {
+  text-align: center;
+  color: #eef2f7;
+}
+
+.menu-inner h1 {
+  font-size: 72px;
+  font-weight: 900;
+  letter-spacing: 4px;
+  font-style: italic;
+}
+
+.menu-inner h1 span {
+  color: #ff5a3c;
+}
+
+.tagline {
+  margin-top: 4px;
+  color: #9fb0c3;
+  letter-spacing: 2px;
+}
+
+#mode-row {
+  margin-top: 32px;
+  display: flex;
+  gap: 14px;
+  justify-content: center;
+}
+
+#play-btn,
+#duel-btn {
+  padding: 14px 42px;
+  font-size: 19px;
+  font-weight: 700;
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: transform 0.1s ease, background 0.15s ease;
+}
+
+#play-btn {
+  background: #3e8fb0;
+}
+
+#play-btn:hover {
+  background: #55a5c5;
+  transform: scale(1.04);
+}
+
+#duel-btn {
+  background: #ff5a3c;
+}
+
+#duel-btn:hover {
+  background: #ff7057;
+  transform: scale(1.04);
+}
+
+#difficulty-row,
+.loadout-group {
+  margin-top: 18px;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: center;
+}
+
+#loadout-row {
+  margin-top: 6px;
+}
+
+.row-label {
+  color: #8494a8;
+  font-size: 13px;
+  margin-right: 6px;
+  min-width: 62px;
+  text-align: right;
+}
+
+.diff-btn,
+.loadout-btn {
+  padding: 7px 16px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #cdd8e4;
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.12s ease;
+}
+
+.diff-btn:hover,
+.loadout-btn:hover {
+  background: rgba(255, 255, 255, 0.16);
+}
+
+.diff-btn.active,
+.loadout-btn.active {
+  background: #ff5a3c;
+  border-color: #ff5a3c;
+  color: #fff;
+}
+
+.controls {
+  margin-top: 28px;
+  color: #8494a8;
+  font-size: 14px;
+}
+
+/* settings panel */
+#settings-panel {
+  margin-top: 18px;
+  color: #cdd8e4;
+  font-size: 14px;
+}
+
+#settings-panel summary {
+  cursor: pointer;
+  color: #9fb0c3;
+  letter-spacing: 1px;
+}
+
+#settings-panel summary:hover {
+  color: #cdd8e4;
+}
+
+.setting-row {
+  margin-top: 12px;
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  justify-content: center;
+}
+
+.setting-row input[type='range'] {
+  width: 180px;
+  accent-color: #ff5a3c;
+}
+
+.setting-val {
+  min-width: 42px;
+  text-align: left;
+  color: #eef2f7;
+  font-weight: 600;
+  font-size: 13px;
+}
+
+/* damage vignette */
+#vignette {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 6;
+  opacity: 0;
+  box-shadow: inset 0 0 140px 50px rgba(220, 30, 20, 0.85);
+}
+
+.controls b {
+  color: #cdd8e4;
+}
+
+/* ---------- HUD ---------- */
+#hud {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 5;
+}
+
+#hud.hidden {
+  display: none;
+}
+
+#crosshair {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  --gap: 8px;
+}
+
+#crosshair i {
+  position: absolute;
+  background: #fff;
+  box-shadow: 0 0 2px rgba(0, 0, 0, 0.9);
+}
+
+#crosshair i:nth-child(1) {
+  width: 2px;
+  height: 8px;
+  left: -1px;
+  top: calc(-1 * var(--gap) - 8px);
+}
+
+#crosshair i:nth-child(2) {
+  width: 2px;
+  height: 8px;
+  left: -1px;
+  top: var(--gap);
+}
+
+#crosshair i:nth-child(3) {
+  width: 8px;
+  height: 2px;
+  top: -1px;
+  left: calc(-1 * var(--gap) - 8px);
+}
+
+#crosshair i:nth-child(4) {
+  width: 8px;
+  height: 2px;
+  top: -1px;
+  left: var(--gap);
+}
+
+/* hitmarker: X flash on confirmed hit */
+#hitmarker {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  opacity: 0;
+}
+
+#hitmarker.show {
+  animation: hitflash 0.18s ease-out;
+}
+
+#hitmarker.kill i {
+  background: #ff4030;
+}
+
+#hitmarker i {
+  position: absolute;
+  width: 2.5px;
+  height: 10px;
+  background: #fff;
+  box-shadow: 0 0 2px rgba(0, 0, 0, 0.9);
+}
+
+#hitmarker i:nth-child(1) {
+  transform: translate(-7px, -12px) rotate(-45deg);
+}
+
+#hitmarker i:nth-child(2) {
+  transform: translate(5px, -12px) rotate(45deg);
+}
+
+#hitmarker i:nth-child(3) {
+  transform: translate(-7px, 2px) rotate(45deg);
+}
+
+#hitmarker i:nth-child(4) {
+  transform: translate(5px, 2px) rotate(-45deg);
+}
+
+@keyframes hitflash {
+  0% {
+    opacity: 1;
+    transform: scale(1.25);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(0.9);
+  }
+}
+
+/* HP (bottom-left, above dash) */
+#hp-wrap {
+  position: absolute;
+  left: 24px;
+  bottom: 64px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+#hp-bar {
+  width: 170px;
+  height: 12px;
+  border-radius: 6px;
+  background: rgba(10, 14, 22, 0.55);
+  overflow: hidden;
+}
+
+#hp-fill {
+  display: block;
+  height: 100%;
+  width: 100%;
+  border-radius: 6px;
+  background: #57d38c;
+  transition: width 0.12s ease, background 0.2s ease;
+}
+
+#hp-fill.low {
+  background: #ff4030;
+}
+
+#hp-num {
+  color: #eef2f7;
+  font-weight: 800;
+  font-size: 18px;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.7);
+}
+
+/* ammo (bottom-right) */
+#ammo-wrap {
+  position: absolute;
+  right: 24px;
+  bottom: 24px;
+  text-align: right;
+  color: #eef2f7;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.7);
+}
+
+#ammo-mag {
+  font-size: 34px;
+  font-weight: 900;
+}
+
+#ammo-mag.reloading {
+  color: #ffb02e;
+}
+
+#ammo-max {
+  font-size: 16px;
+  color: #9fb0c3;
+  margin-left: 6px;
+}
+
+#weapon-name {
+  font-size: 13px;
+  letter-spacing: 1px;
+  color: #cdd8e4;
+}
+
+#weapon-slots {
+  margin-top: 6px;
+  display: flex;
+  gap: 6px;
+  justify-content: flex-end;
+}
+
+#weapon-slots span {
+  min-width: 20px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: rgba(10, 14, 22, 0.5);
+  color: #8494a8;
+  font-size: 11px;
+  text-align: center;
+}
+
+#weapon-slots span.active {
+  background: #ff5a3c;
+  color: #fff;
+}
+
+/* duel score + banner */
+#score-wrap {
+  position: absolute;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+  background: rgba(10, 14, 22, 0.55);
+  padding: 6px 18px;
+  border-radius: 8px;
+  color: #eef2f7;
+}
+
+#score-wrap.hidden,
+#banner.hidden,
+#bot-hp-wrap.hidden {
+  display: none;
+}
+
+.score-name {
+  font-size: 12px;
+  color: #9fb0c3;
+  letter-spacing: 1px;
+}
+
+#score-player,
+#score-bot {
+  font-size: 26px;
+  font-weight: 900;
+}
+
+#score-player {
+  color: #57d38c;
+}
+
+#score-bot {
+  color: #ff5a3c;
+}
+
+.score-sep {
+  color: #8494a8;
+}
+
+#banner {
+  position: absolute;
+  left: 50%;
+  top: 34%;
+  transform: translateX(-50%);
+  text-align: center;
+  text-shadow: 0 2px 8px rgba(0, 0, 0, 0.6);
+}
+
+#banner-main {
+  font-size: 64px;
+  font-weight: 900;
+  font-style: italic;
+  color: #fff;
+  animation: bannerpop 0.35s ease-out;
+}
+
+#banner-sub {
+  font-size: 22px;
+  color: #cdd8e4;
+  margin-top: 4px;
+}
+
+@keyframes bannerpop {
+  0% {
+    transform: scale(1.5);
+    opacity: 0;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+/* bot HP bar under the score */
+#bot-hp-wrap {
+  position: absolute;
+  top: 62px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 180px;
+  height: 8px;
+  border-radius: 4px;
+  background: rgba(10, 14, 22, 0.55);
+  overflow: hidden;
+}
+
+#bot-hp-fill {
+  display: block;
+  height: 100%;
+  width: 100%;
+  background: #ff5a3c;
+  border-radius: 4px;
+  transition: width 0.12s ease;
+}
+
+/* kill feed (top-right) */
+#killfeed {
+  position: absolute;
+  top: 18px;
+  right: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: flex-end;
+}
+
+.feed-entry {
+  background: rgba(10, 14, 22, 0.6);
+  color: #eef2f7;
+  padding: 4px 10px;
+  border-radius: 4px;
+  font-size: 13px;
+  animation: feedfade 3s forwards;
+}
+
+.feed-entry b {
+  color: #ff5a3c;
+}
+
+@keyframes feedfade {
+  0%,
+  75% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+#dash-indicator {
+  position: absolute;
+  left: 24px;
+  bottom: 24px;
+  width: 140px;
+}
+
+#dash-indicator label {
+  display: block;
+  margin-top: 6px;
+  color: #cdd8e4;
+  font-size: 12px;
+  letter-spacing: 1px;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
+}
+
+#dash-fill {
+  display: block;
+  height: 8px;
+  border-radius: 4px;
+  background: #ff5a3c;
+  width: 100%;
+  transition: width 0.05s linear;
+}
+
+/* ---------- touch controls (body.touch only) ---------- */
+.touch-zone,
+#joy-base,
+.touch-btn,
+.touch-help {
+  display: none;
+}
+
+body.touch .desktop-help {
+  display: none;
+}
+
+body.touch .touch-help {
+  display: inline;
+}
+
+body.touch #dash-indicator {
+  left: 24px;
+  bottom: 24px;
+  width: 110px;
+}
+
+body.touch #hp-wrap {
+  left: 24px;
+  bottom: 64px;
+}
+
+body.touch #ammo-wrap {
+  right: 20px;
+  bottom: auto;
+  top: 14px;
+}
+
+body.touch #killfeed {
+  top: 14px;
+  right: auto;
+  left: 20px;
+  align-items: flex-start;
+}
+
+body.touch .touch-zone {
+  display: block;
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  pointer-events: auto;
+}
+
+#touch-move-zone {
+  left: 0;
+  width: 42%;
+}
+
+#touch-look-zone {
+  right: 0;
+  width: 58%;
+}
+
+body.touch #joy-base {
+  position: absolute;
+  width: 128px;
+  height: 128px;
+  margin: -64px 0 0 -64px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.08);
+  border: 2px solid rgba(255, 255, 255, 0.25);
+  display: none; /* shown while a move touch is active */
+}
+
+#joy-knob {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.45);
+  transform: translate(-50%, -50%);
+}
+
+body.touch .touch-btn {
+  display: block;
+  position: absolute;
+  pointer-events: auto;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  background: rgba(20, 28, 40, 0.45);
+  color: #eef2f7;
+  font-weight: 700;
+  border-radius: 50%;
+  -webkit-tap-highlight-color: transparent;
+}
+
+body.touch .touch-btn:active {
+  background: rgba(255, 90, 60, 0.55);
+}
+
+#btn-jump {
+  right: 28px;
+  bottom: 30px;
+  width: 84px;
+  height: 84px;
+  font-size: 15px;
+}
+
+#btn-dash {
+  right: 126px;
+  bottom: 96px;
+  width: 64px;
+  height: 64px;
+  font-size: 13px;
+}
+
+#btn-slide {
+  right: 140px;
+  bottom: 22px;
+  width: 64px;
+  height: 64px;
+  font-size: 11px;
+}
+
+#btn-fire {
+  right: 210px;
+  bottom: 52px;
+  width: 88px;
+  height: 88px;
+  font-size: 16px;
+  background: rgba(255, 90, 60, 0.35);
+}
+
+#btn-ads {
+  right: 126px;
+  bottom: 170px;
+  width: 56px;
+  height: 56px;
+  font-size: 12px;
+}
+
+#btn-reload {
+  right: 310px;
+  bottom: 30px;
+  width: 56px;
+  height: 56px;
+  font-size: 12px;
+}
+
+body.touch #touch-slots {
+  position: absolute;
+  left: 50%;
+  bottom: 14px;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 8px;
+}
+
+.slot-btn {
+  position: relative !important;
+  width: 40px;
+  height: 40px;
+  border-radius: 8px !important;
+  font-size: 14px;
+}
+
+#btn-pause {
+  left: 14px;
+  top: 14px;
+  width: 44px;
+  height: 44px;
+  border-radius: 10px;
+  font-size: 13px;
+}
+
+body.touch #killfeed {
+  top: 70px;
+}
+
+/* ---------- rotate-to-landscape overlay ---------- */
+#rotate-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  background: #0e1420;
+  color: #eef2f7;
+  text-align: center;
+  align-items: center;
+  justify-content: center;
+  font-size: 20px;
+}
+
+.rotate-icon {
+  font-size: 56px;
+  margin-bottom: 16px;
+}
+
+@media (orientation: portrait) {
+  body.touch #rotate-overlay {
+    display: flex;
+  }
+}
