@@ -58,10 +58,14 @@ npm run build    # 프로덕션 빌드 (dist/)
 클라이언트와 WebSocket 게임 서버는 **하나의 서비스(같은 origin)** 로 동작합니다. 게임 로직은
 런타임 독립 모듈(`server/game.js`)이고, 전송 계층만 런타임별로 다릅니다:
 
-- **Deno Deploy (기본)** — `server/deno.ts` 진입점. `.github/workflows/deploy.yml`이 `main` 푸시 시
-  클라이언트를 빌드(`dist/`)하고 `deployctl`로 배포합니다. GitHub 저장소 시크릿에
-  `DENO_DEPLOY_TOKEN`(Deno Deploy 액세스 토큰), 선택적으로 `DENO_PROJECT`(기본값 `rifle-gg`)를
-  등록하세요. Deno Deploy는 WebSocket을 지원하고 무료 플랜에서 카드가 필요 없습니다.
+- **Deno Deploy (기본, `console.deno.com` — Apps/Git 빌드)** — 저장소를 앱으로 연결하고
+  아래 빌드 설정을 지정하면 푸시할 때마다 자동 빌드+배포됩니다. WebSocket 지원, 무료 플랜 카드 불필요.
+  - Install Command: `npm install --include=dev` (`vite`/`tsc`가 devDependencies라 필요)
+  - Build Command: `npm run build` (→ `dist/`)
+  - Entrypoint: `server/deno.ts`
+  - Framework preset: **None** (Vite 정적 사이트로 자동 감지되지 않도록)
+- **구버전 Deno Deploy (`dash.deno.com` — Projects/deployctl)** — `.github/workflows/deploy.yml`
+  (수동 실행). 저장소 시크릿 `DENO_DEPLOY_TOKEN`, 선택 `DENO_PROJECT` 필요.
 - **Node 호스트 (Render 등)** — `server/index.js` 진입점. `render.yaml`은 Node 웹 서비스 하나로
   빌드+구동합니다.
 

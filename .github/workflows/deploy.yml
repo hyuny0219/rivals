@@ -1,8 +1,11 @@
-name: Deploy to Deno Deploy
+name: Deploy to Deno Deploy (deployctl — legacy Projects)
 
+# NOTE: This is only for the OLD Deno Deploy (dash.deno.com "Projects" +
+# deployctl). If you use the NEW Deno Deploy (console.deno.com "Apps"), it
+# builds from the repo itself — you don't need this workflow; configure the
+# app's Install/Build commands + entrypoint instead (see README). Left as
+# manual-dispatch only so it never auto-fails on push.
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
 
 permissions:
