@@ -172,15 +172,18 @@ body {
   display: none;
 }
 
-#teamsize-row {
+#teamsize-row,
+#map-row {
   margin-top: 14px;
   display: flex;
   gap: 8px;
   align-items: center;
   justify-content: center;
+  flex-wrap: wrap;
 }
 
-.size-btn {
+.size-btn,
+.map-btn {
   padding: 7px 14px;
   font-size: 13px;
   font-weight: 600;
@@ -191,7 +194,8 @@ body {
   cursor: pointer;
 }
 
-.size-btn.active {
+.size-btn.active,
+.map-btn.active {
   background: #ff5a3c;
   border-color: #ff5a3c;
   color: #fff;

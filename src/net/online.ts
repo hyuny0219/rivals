@@ -17,6 +17,7 @@ export interface RosterEntry {
 export interface LobbyInfo {
   code: string
   teamSize: number
+  mapId: string
   hostId: string
   you: string
   players: { id: string; team: number; ready: boolean }[]
@@ -24,6 +25,7 @@ export interface LobbyInfo {
 
 export interface RosterInfo {
   teamSize: number
+  mapId: string
   hostId: string
   you: string
   players: RosterEntry[]
@@ -97,10 +99,10 @@ export class OnlineManager {
     })
   }
 
-  async create(url: string, teamSize: number) {
+  async create(url: string, teamSize: number, mapId: string) {
     await this.connect(url)
     this.phase = 'waiting'
-    this.send({ t: 'create', teamSize })
+    this.send({ t: 'create', teamSize, mapId })
   }
 
   async join(url: string, code: string) {

@@ -69,6 +69,11 @@ export class PhysicsWorld {
     this.colliders.push(box)
   }
 
+  /** Drop all static geometry (before rebuilding the map for a new theme). */
+  clearColliders() {
+    this.colliders.length = 0
+  }
+
   addHitbox(hitbox: Hitbox) {
     this.hitboxes.push(hitbox)
   }

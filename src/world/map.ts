@@ -1,5 +1,6 @@
 import * as THREE from 'three'
 import { PhysicsWorld } from './physics'
+import { MapPalette, MapTheme } from './maps'
 
 export interface SpawnPoint {
   position: THREE.Vector3
@@ -14,24 +15,13 @@ export interface GameMap {
   teamSpawns: [SpawnPoint[], SpawnPoint[]]
 }
 
-const PALETTE = {
-  floor: 0x9aa5b1,
-  floorAccent: 0x8494a3,
-  wall: 0x7488a0,
-  midWall: 0x66788c,
-  crateA: 0xe2903a,
-  crateB: 0x4fa3a5,
-  platform: 0x6f9a78,
-  stairs: 0x7d8a97,
-  spawnPad: 0xff5a3c,
-}
-
 /**
- * "Foundry" — a symmetric low-poly 1v1 arena, mirrored across x = 0.
- * Players spawn at ±x ends. Everything is axis-aligned boxes so the
- * AABB physics world covers all of it.
+ * Symmetric low-poly arena, mirrored across x = 0. Players spawn at ±x ends.
+ * Everything is axis-aligned boxes so the AABB physics world covers all of it.
+ * The collision layout is fixed; `theme.palette` recolors it per map.
  */
-export function buildMap(world: PhysicsWorld): GameMap {
+export function buildMap(world: PhysicsWorld, theme: MapTheme): GameMap {
+  const PALETTE: MapPalette = theme.palette
   const group = new THREE.Group()
 
   const materials = new Map<number, THREE.MeshLambertMaterial>()
@@ -138,6 +128,14 @@ export function buildMap(world: PhysicsWorld): GameMap {
   // spawn pads (decorative markers)
   box(-W / 2 + 3, 0, 0, 3, 0.05, 3, PALETTE.spawnPad, false)
   box(W / 2 - 3, 0, 0, 3, 0.05, 3, PALETTE.spawnPad, false)
+
+  // decorative skyline pillars beyond the walls (non-solid) — theme flavor
+  for (const side of [-1, 1]) {
+    for (let i = 0; i < 5; i++) {
+      const h = 6 + ((i * 7) % 11)
+      box(side * (W / 2 + 6 + i * 3), 0, -14 + i * 7, 3, h, 3, PALETTE.decor, false)
+    }
+  }
 
   const spawns: SpawnPoint[] = [
     { position: new THREE.Vector3(-W / 2 + 3, 0.1, 0), yaw: -Math.PI / 2 },
