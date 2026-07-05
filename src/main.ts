@@ -722,6 +722,7 @@ const online = new OnlineManager({
     const wasAlive = e.hp > 0
     e.hp = hp
     if (e.remote) {
+      e.remote.setHealth(hp / MAX_HP)
       if (hp <= 0 && wasAlive) {
         effects.puff(e.remote.center, 0xc94f4f)
         e.remote.deactivate()
