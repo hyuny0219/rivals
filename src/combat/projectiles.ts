@@ -14,7 +14,6 @@ interface Grenade {
   fuse: number
   radius: number
   maxDamage: number
-  thrower: Damageable | null
 }
 
 /** Thrown grenades: bouncing AABB physics + timed radial explosion. */
@@ -34,7 +33,7 @@ export class ProjectileManager {
     private onExplosionHit: (target: Damageable, damage: number, killed: boolean) => void,
   ) {}
 
-  throwGrenade(origin: THREE.Vector3, dir: THREE.Vector3, radius: number, maxDamage: number, thrower: Damageable | null) {
+  throwGrenade(origin: THREE.Vector3, dir: THREE.Vector3, radius: number, maxDamage: number) {
     const mesh = new THREE.Mesh(this.geo, this.mat)
     mesh.position.copy(origin)
     this.scene.add(mesh)
@@ -44,7 +43,6 @@ export class ProjectileManager {
       fuse: FUSE_SECONDS,
       radius,
       maxDamage,
-      thrower,
     })
   }
 
@@ -63,30 +61,54 @@ export class ProjectileManager {
         continue
       }
       g.velocity.y -= GRAVITY * dt
-      this.moveAxis(g, 'x', g.velocity.x * dt)
-      this.moveAxis(g, 'y', g.velocity.y * dt)
-      this.moveAxis(g, 'z', g.velocity.z * dt)
+      this.moveAxis(g, 'x', g.velocity.x * dt, dt)
+      this.moveAxis(g, 'y', g.velocity.y * dt, dt)
+      this.moveAxis(g, 'z', g.velocity.z * dt, dt)
     }
   }
 
-  private moveAxis(g: Grenade, axis: 'x' | 'y' | 'z', amount: number) {
+  private moveAxis(g: Grenade, axis: 'x' | 'y' | 'z', amount: number, dt: number) {
     const p = g.mesh.position
     p[axis] += amount
     this.box.min.set(p.x - SIZE, p.y - SIZE, p.z - SIZE)
     this.box.max.set(p.x + SIZE, p.y + SIZE, p.z + SIZE)
     this.world.overlaps(this.box, this.hits)
     for (const hit of this.hits) {
+      // only resolve against boxes whose shallowest penetration is on this
+      // axis — a wall brushed sideways must not be "resolved" vertically
+      // (that would teleport the grenade to the wall top)
+      if (!this.penetrationIsOnAxis(hit, axis)) continue
       if (amount > 0) p[axis] = hit.min[axis] - SIZE - 0.001
       else p[axis] = hit.max[axis] + SIZE + 0.001
-      // bounce: reflect this axis, damp the others
+      // bounce: reflect this axis, damp the others (dt-scaled so contact
+      // friction is frame-rate independent)
       g.velocity[axis] *= -RESTITUTION
+      const friction = Math.pow(TANGENT_FRICTION, dt * 60)
       for (const other of ['x', 'y', 'z'] as const) {
-        if (other !== axis) g.velocity[other] *= TANGENT_FRICTION
+        if (other !== axis) g.velocity[other] *= friction
       }
+      // rest on the ground instead of micro-bouncing forever
+      if (axis === 'y' && amount < 0 && Math.abs(g.velocity.y) < 1.2) g.velocity.y = 0
       this.box.min.set(p.x - SIZE, p.y - SIZE, p.z - SIZE)
       this.box.max.set(p.x + SIZE, p.y + SIZE, p.z + SIZE)
+      break
     }
   }
+
+  private penetrationIsOnAxis(hit: THREE.Box3, axis: 'x' | 'y' | 'z'): boolean {
+    let minDepth = Infinity
+    let minAxis: 'x' | 'y' | 'z' = axis
+    for (const a of ['x', 'y', 'z'] as const) {
+      const depth = Math.min(this.box.max[a], hit.max[a]) - Math.max(this.box.min[a], hit.min[a])
+      if (depth < minDepth) {
+        minDepth = depth
+        minAxis = a
+      }
+    }
+    return minAxis === axis
+  }
+
+  private losDir = new THREE.Vector3()
 
   private explode(g: Grenade) {
     const at = g.mesh.position
@@ -95,6 +117,12 @@ export class ProjectileManager {
       if (!target.alive) continue
       const dist = target.center.distanceTo(at)
       if (dist > g.radius) continue
+      // occlusion: static world geometry blocks the blast (other entities don't)
+      if (dist > 0.01) {
+        this.losDir.copy(target.center).sub(at).divideScalar(dist)
+        const hit = this.world.raycast(at, this.losDir, dist)
+        if (hit && !hit.hitbox) continue
+      }
       const damage = Math.round(g.maxDamage * (1 - dist / g.radius))
       if (damage <= 0) continue
       const killed = target.takeDamage(damage, false)

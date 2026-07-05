@@ -98,6 +98,13 @@ export class PlayerController {
     this.updateCamera(0)
   }
 
+  /** Set the view angles directly (clamped) and sync the camera immediately. */
+  setView(yaw: number, pitch: number) {
+    this.yaw = yaw
+    this.pitch = THREE.MathUtils.clamp(pitch, -PITCH_LIMIT, PITCH_LIMIT)
+    this.syncCameraRotation()
+  }
+
   /** Weapon recoil: kick the view up (and a touch sideways), decaying over time. */
   punch(pitchKick: number, yawKick: number) {
     this.punchPitch = Math.min(this.punchPitch + pitchKick, 0.12)

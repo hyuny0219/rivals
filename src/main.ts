@@ -98,6 +98,11 @@ const playerTarget: PlayerTarget = {
 function respawn() {
   player.spawn(map.spawns[0].position, map.spawns[0].yaw)
   playerTarget.hp = MAX_HP
+  syncPlayerCenter()
+}
+
+function syncPlayerCenter() {
+  playerTarget.center.copy(player.position).y += 0.9
 }
 respawn()
 
@@ -211,6 +216,7 @@ function setPlaying(p: boolean) {
   menu.classList.toggle('hidden', p)
   hud.classList.toggle('hidden', !p)
   input.releaseAll()
+  if (!p) weapons.resetAds() // don't leave the menu zoomed in
 }
 
 async function startGame() {
@@ -278,8 +284,13 @@ function frame(now: number) {
     while (accumulator >= PHYSICS_STEP && steps < MAX_STEPS_PER_FRAME) {
       elapsed += PHYSICS_STEP
       player.update(PHYSICS_STEP, input)
+      syncPlayerCenter() // explosions this step must see the current position
       weapons.update(PHYSICS_STEP, input)
       projectiles.update(PHYSICS_STEP)
+      // out-of-combat regen runs on game time, not wall-clock time
+      if (playerTarget.hp < MAX_HP && elapsed - playerTarget.lastDamageAt > HP_REGEN_DELAY) {
+        playerTarget.hp = Math.min(MAX_HP, playerTarget.hp + HP_REGEN_PER_SECOND * PHYSICS_STEP)
+      }
       accumulator -= PHYSICS_STEP
       steps++
     }
@@ -287,12 +298,6 @@ function frame(now: number) {
     // keep presses buffered across frames that ran zero physics steps
     // (high-refresh displays) so taps are never dropped
     if (steps > 0) input.clearPressed()
-
-    // out-of-combat regen
-    if (playerTarget.hp < MAX_HP && elapsed - playerTarget.lastDamageAt > HP_REGEN_DELAY) {
-      playerTarget.hp = Math.min(MAX_HP, playerTarget.hp + HP_REGEN_PER_SECOND * dt)
-    }
-    playerTarget.center.copy(player.position).y += 0.9
 
     for (const d of dummies) d.update(dt)
     effects.update(dt)
@@ -345,8 +350,7 @@ requestAnimationFrame(frame)
   /** Point the camera at a world position (test helper). */
   aimAt(x: number, y: number, z: number) {
     const dir = new THREE.Vector3(x, y, z).sub(camera.position).normalize()
-    player.yaw = Math.atan2(-dir.x, -dir.z)
-    player.pitch = Math.asin(dir.y)
+    player.setView(Math.atan2(-dir.x, -dir.z), Math.asin(dir.y))
   },
   press(code: string) {
     input.virtualDown(code)

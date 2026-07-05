@@ -102,6 +102,9 @@ export class PhysicsWorld {
     }
     for (const h of this.hitboxes) {
       if (!h.entity.alive || h.entity === ignore) continue
+      // a camera standing inside a hitbox must not "hit" it at distance 0
+      // regardless of aim direction
+      if (h.box.containsPoint(origin)) continue
       const t = rayBoxDistance(origin, dir, h.box, best)
       if (t !== null && t < best) {
         best = t

@@ -107,25 +107,31 @@ export class WeaponController {
       }
     }
 
-    // slot switching (pressing the active slot key again cycles in-slot)
-    for (let i = 0; i < SLOT_ORDER.length; i++) {
-      if (input.consumePress(`Digit${i + 1}`)) this.selectSlot(SLOT_ORDER[i])
+    // slot switching (pressing the active slot key again cycles in-slot);
+    // while a switch is raising, leave presses buffered instead of eating them
+    if (this.switchTimer <= 0) {
+      for (let i = 0; i < SLOT_ORDER.length; i++) {
+        if (input.consumePress(`Digit${i + 1}`)) this.selectSlot(SLOT_ORDER[i])
+      }
     }
 
     // reload
     if (this.reloadTimer > 0) {
       this.reloadTimer -= dt
       if (this.reloadTimer <= 0) this.mag.set(this.weapon.id, this.weapon.magazine)
-    } else if (input.consumePress('KeyR')) {
+    } else if (this.switchTimer <= 0 && input.consumePress('KeyR')) {
       this.tryReload()
     }
 
-    // fire
+    // fire — only consume the press when it can actually produce a shot, so
+    // a click landing during cooldown/switch stays buffered for this frame
     const w = this.weapon
-    const wantsFire = w.auto ? input.isDown('Mouse0') : input.consumePress('Mouse0')
-    if (wantsFire && this.canFire()) {
-      this.fire()
-    } else if (wantsFire && this.magEmpty() && this.reloadTimer <= 0 && this.switchTimer <= 0) {
+    if (this.canFire()) {
+      const wantsFire = w.auto
+        ? input.isDown('Mouse0') || input.consumePress('Mouse0')
+        : input.consumePress('Mouse0')
+      if (wantsFire) this.fire()
+    } else if (this.magEmpty() && this.reloadTimer <= 0 && this.switchTimer <= 0 && input.consumePress('Mouse0')) {
       this.tryReload()
     }
 
@@ -179,7 +185,7 @@ export class WeaponController {
       if (count <= 0) return
       this.mag.set(w.id, count - 1)
       this.camera.getWorldDirection(this.vDir)
-      this.projectiles.throwGrenade(this.camera.position, this.vDir, w.range, w.damage, this.self)
+      this.projectiles.throwGrenade(this.camera.position, this.vDir, w.range, w.damage)
     } else if (w.kind === 'melee') {
       this.camera.getWorldDirection(this.vDir)
       const hit = this.world.raycast(this.camera.position, this.vDir, w.range, this.self)
@@ -232,6 +238,14 @@ export class WeaponController {
       this.camera.updateProjectionMatrix()
     }
     this.player.sensScale = this.aiming ? ADS_SENS_SCALE : 1
+  }
+
+  /** Instantly drop ADS state (called when the game is paused). */
+  resetAds() {
+    this.adsHeld = false
+    this.camera.fov = this.baseFov
+    this.camera.updateProjectionMatrix()
+    this.player.sensScale = 1
   }
 
   // ---------- viewmodel ----------
