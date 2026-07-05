@@ -248,6 +248,21 @@ export class WeaponController {
     this.player.sensScale = 1
   }
 
+  /** Equip a loadout and refill everything (duel round start). */
+  setLoadout(primaryId: string, secondaryId: string) {
+    this.slotIndex.primary = Math.max(0, SLOT_WEAPONS.primary.indexOf(primaryId))
+    this.slotIndex.secondary = Math.max(0, SLOT_WEAPONS.secondary.indexOf(secondaryId))
+    this.currentSlot = 'primary'
+    this.reloadTimer = 0
+    this.fireCooldown = 0
+    this.switchTimer = 0
+    this.bloom = 0
+    this.grenadeRegen = 0
+    for (const def of Object.values(WEAPONS)) this.mag.set(def.id, def.magazine)
+    this.resetAds()
+    this.buildViewmodel()
+  }
+
   // ---------- viewmodel ----------
 
   private buildViewmodel() {

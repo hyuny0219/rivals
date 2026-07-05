@@ -10,6 +10,8 @@ import { ProjectileManager } from './combat/projectiles'
 import { WeaponController } from './combat/weaponController'
 import { SLOT_ORDER } from './combat/weapons'
 import { TargetDummy } from './entities/dummy'
+import { Bot, Difficulty } from './entities/bot'
+import { DuelManager } from './game/duel'
 
 const canvas = document.querySelector<HTMLCanvasElement>('#game')!
 const menu = document.querySelector<HTMLDivElement>('#menu')!
@@ -25,6 +27,15 @@ const slotEls = [...document.querySelectorAll<HTMLSpanElement>('#weapon-slots sp
 const crosshair = document.querySelector<HTMLDivElement>('#crosshair')!
 const hitmarker = document.querySelector<HTMLDivElement>('#hitmarker')!
 const killfeed = document.querySelector<HTMLDivElement>('#killfeed')!
+const duelBtn = document.querySelector<HTMLButtonElement>('#duel-btn')!
+const scoreWrap = document.querySelector<HTMLDivElement>('#score-wrap')!
+const scorePlayer = document.querySelector<HTMLSpanElement>('#score-player')!
+const scoreBot = document.querySelector<HTMLSpanElement>('#score-bot')!
+const banner = document.querySelector<HTMLDivElement>('#banner')!
+const bannerMain = document.querySelector<HTMLDivElement>('#banner-main')!
+const bannerSub = document.querySelector<HTMLDivElement>('#banner-sub')!
+const botHpWrap = document.querySelector<HTMLDivElement>('#bot-hp-wrap')!
+const botHpFill = document.querySelector<HTMLSpanElement>('#bot-hp-fill')!
 
 const touchMode = isTouchDevice()
 if (touchMode) document.body.classList.add('touch')
@@ -77,22 +88,48 @@ const MAX_HP = 100
 interface PlayerTarget extends Damageable {
   hp: number
   lastDamageAt: number
+  readonly position: THREE.Vector3
 }
 const playerTarget: PlayerTarget = {
   center: new THREE.Vector3(),
+  get position() {
+    return player.position
+  },
   alive: true,
   hp: MAX_HP,
   lastDamageAt: -Infinity,
   takeDamage(amount: number): boolean {
+    if (duel.active && duel.frozen) return false // no damage during countdown/round end
     playerTarget.hp = Math.max(0, playerTarget.hp - amount)
     playerTarget.lastDamageAt = elapsed
     if (playerTarget.hp <= 0) {
-      addFeedEntry('<b>YOU</b> 자폭했습니다')
-      respawn()
+      if (duel.active) {
+        addFeedEntry('<b>BOT</b> YOU 처치')
+        duel.playerDied()
+      } else {
+        addFeedEntry('<b>YOU</b> 자폭했습니다')
+        respawn()
+      }
       return true
     }
     return false
   },
+}
+
+// player hitboxes so the bot's shots can land (updated per physics step)
+const playerBodyHitbox = { entity: playerTarget as Damageable, part: 'body' as const, box: new THREE.Box3() }
+const playerHeadHitbox = { entity: playerTarget as Damageable, part: 'head' as const, box: new THREE.Box3() }
+physics.addHitbox(playerBodyHitbox)
+physics.addHitbox(playerHeadHitbox)
+
+function syncPlayerHitboxes() {
+  const p = player.position
+  const h = player.sliding ? 0.95 : 1.8
+  const split = p.y + h * 0.78
+  playerBodyHitbox.box.min.set(p.x - 0.35, p.y, p.z - 0.35)
+  playerBodyHitbox.box.max.set(p.x + 0.35, split, p.z + 0.35)
+  playerHeadHitbox.box.min.set(p.x - 0.2, split, p.z - 0.2)
+  playerHeadHitbox.box.max.set(p.x + 0.2, p.y + h, p.z + 0.2)
 }
 
 function respawn() {
@@ -142,6 +179,69 @@ const weapons = new WeaponController(physics, player, camera, effects, projectil
   showHitmarker(info.killed && info.isHead ? true : info.killed)
 })
 
+// ---------- 1v1 duel ----------
+const bot = new Bot(
+  physics,
+  effects,
+  playerTarget,
+  () => {
+    /* bot hit the player — HP bar already reflects it */
+  },
+  () => {
+    addFeedEntry('<b>YOU</b> BOT 처치')
+    duel.botDied()
+  },
+)
+scene.add(bot.group)
+bot.alive = false
+bot.group.visible = false
+
+let selectedDifficulty: Difficulty = 'normal'
+let selectedPrimary = 'ar'
+let selectedSecondary = 'pistol'
+let bannerTimeout = 0
+
+function showBanner(text: string, sub = '', seconds = 1) {
+  bannerMain.textContent = text
+  bannerSub.textContent = sub
+  banner.classList.remove('hidden')
+  window.clearTimeout(bannerTimeout)
+  bannerTimeout = window.setTimeout(() => banner.classList.add('hidden'), seconds * 1000)
+}
+
+const duel = new DuelManager({
+  onRoundStart: (round) => {
+    respawn()
+    weapons.setLoadout(selectedPrimary, selectedSecondary)
+    bot.setDifficulty(selectedDifficulty)
+    bot.reset(map.spawns[1].position.clone(), map.spawns[1].yaw)
+    projectiles.clear()
+    showBanner(`라운드 ${round}`, `${duel.playerScore} : ${duel.botScore}`, 1.1)
+  },
+  onBanner: (text, sub) => showBanner(text, sub ?? '', text.length <= 3 ? 0.9 : 2),
+  onMatchEnd: () => {
+    /* the manager returns to idle after its timer; cleanup happens below */
+  },
+})
+
+function endDuelCleanup() {
+  bot.alive = false
+  bot.group.visible = false
+  for (const d of dummies) d.setEnabled(true)
+  projectiles.clear()
+  scoreWrap.classList.add('hidden')
+  botHpWrap.classList.add('hidden')
+  if (document.pointerLockElement === canvas) document.exitPointerLock()
+  else setPlaying(false)
+}
+
+function beginDuel() {
+  for (const d of dummies) d.setEnabled(false)
+  duel.startMatch()
+  scoreWrap.classList.remove('hidden')
+  botHpWrap.classList.remove('hidden')
+}
+
 // ---------- HUD helpers ----------
 function showHitmarker(kill: boolean) {
   hitmarker.classList.remove('show', 'kill')
@@ -184,6 +284,12 @@ function updateHud() {
 
   crosshair.style.setProperty('--gap', `${weapons.crosshairGap.toFixed(1)}px`)
   crosshair.style.display = weapons.aiming && w.id === 'sniper' ? 'none' : ''
+
+  if (duel.active) {
+    scorePlayer.textContent = String(duel.playerScore)
+    scoreBot.textContent = String(duel.botScore)
+    botHpFill.style.width = `${Math.max(0, bot.hp)}%`
+  }
 }
 
 // ---------- touch controls ----------
@@ -216,8 +322,20 @@ function setPlaying(p: boolean) {
   menu.classList.toggle('hidden', p)
   hud.classList.toggle('hidden', !p)
   input.releaseAll()
-  if (!p) weapons.resetAds() // don't leave the menu zoomed in
+  if (p && pendingDuel && !duel.active) {
+    pendingDuel = false
+    beginDuel()
+  }
+  if (!p) {
+    weapons.resetAds() // don't leave the menu zoomed in
+    if (duel.active) {
+      duel.stop()
+      endDuelCleanup()
+    }
+  }
 }
+
+let pendingDuel = false
 
 async function startGame() {
   if (touchMode) {
@@ -242,7 +360,29 @@ async function startGame() {
   }
 }
 
-playBtn.addEventListener('click', startGame)
+playBtn.addEventListener('click', () => {
+  pendingDuel = false
+  void startGame()
+})
+duelBtn.addEventListener('click', () => {
+  pendingDuel = true
+  void startGame()
+})
+
+// menu option toggles (difficulty / loadout)
+function wireToggleGroup(selector: string, onPick: (id: string) => void) {
+  const buttons = [...document.querySelectorAll<HTMLButtonElement>(selector)]
+  for (const btn of buttons) {
+    btn.addEventListener('click', () => {
+      for (const b of buttons) b.classList.remove('active')
+      btn.classList.add('active')
+      onPick(btn.dataset.diff ?? btn.dataset.id ?? '')
+    })
+  }
+}
+wireToggleGroup('.diff-btn', (id) => (selectedDifficulty = id as Difficulty))
+wireToggleGroup('.primary-btn', (id) => (selectedPrimary = id))
+wireToggleGroup('.secondary-btn', (id) => (selectedSecondary = id))
 
 document.addEventListener('pointerlockchange', () => {
   if (!touchMode) setPlaying(document.pointerLockElement === canvas)
@@ -281,19 +421,26 @@ function frame(now: number) {
     input.clearMouse()
     accumulator += dt
     let steps = 0
+    const duelWasActive = duel.active
     while (accumulator >= PHYSICS_STEP && steps < MAX_STEPS_PER_FRAME) {
       elapsed += PHYSICS_STEP
-      player.update(PHYSICS_STEP, input)
-      syncPlayerCenter() // explosions this step must see the current position
-      weapons.update(PHYSICS_STEP, input)
-      projectiles.update(PHYSICS_STEP)
-      // out-of-combat regen runs on game time, not wall-clock time
-      if (playerTarget.hp < MAX_HP && elapsed - playerTarget.lastDamageAt > HP_REGEN_DELAY) {
-        playerTarget.hp = Math.min(MAX_HP, playerTarget.hp + HP_REGEN_PER_SECOND * PHYSICS_STEP)
+      duel.update(PHYSICS_STEP)
+      if (!(duel.active && duel.frozen)) {
+        player.update(PHYSICS_STEP, input)
+        syncPlayerCenter() // explosions this step must see the current position
+        syncPlayerHitboxes()
+        weapons.update(PHYSICS_STEP, input)
+        projectiles.update(PHYSICS_STEP)
+        if (duel.active) bot.update(PHYSICS_STEP)
+        // out-of-combat regen runs on game time, not wall-clock time
+        if (playerTarget.hp < MAX_HP && elapsed - playerTarget.lastDamageAt > HP_REGEN_DELAY) {
+          playerTarget.hp = Math.min(MAX_HP, playerTarget.hp + HP_REGEN_PER_SECOND * PHYSICS_STEP)
+        }
       }
       accumulator -= PHYSICS_STEP
       steps++
     }
+    if (duelWasActive && !duel.active) endDuelCleanup() // match finished
     if (steps === MAX_STEPS_PER_FRAME) accumulator = 0
     // keep presses buffered across frames that ran zero physics steps
     // (high-refresh displays) so taps are never dropped
@@ -343,6 +490,32 @@ requestAnimationFrame(frame)
   },
   get dummies() {
     return dummies.map((d) => ({ name: d.name, hp: d.hp, alive: d.alive }))
+  },
+  get duel() {
+    return {
+      state: duel.state,
+      playerScore: duel.playerScore,
+      botScore: duel.botScore,
+      round: duel.round,
+      botHp: bot.hp,
+      botAlive: bot.alive,
+      botX: bot.controller.position.x,
+      botZ: bot.controller.position.z,
+    }
+  },
+  damageBot(amount: number) {
+    bot.takeDamage(amount, false)
+  },
+  damagePlayer(amount: number) {
+    playerTarget.takeDamage(amount, false)
+  },
+  startDuel(difficulty: string) {
+    selectedDifficulty = difficulty as Difficulty
+    pendingDuel = true
+    if (playing) {
+      pendingDuel = false
+      beginDuel()
+    }
   },
   spawnAt(x: number, y: number, z: number, yaw: number) {
     player.spawn(new THREE.Vector3(x, y, z), yaw)

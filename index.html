@@ -34,6 +34,19 @@
 
       <div id="killfeed"></div>
 
+      <div id="score-wrap" class="hidden">
+        <span class="score-name">YOU</span>
+        <span id="score-player">0</span>
+        <span class="score-sep">:</span>
+        <span id="score-bot">0</span>
+        <span class="score-name">BOT</span>
+      </div>
+      <div id="banner" class="hidden">
+        <div id="banner-main"></div>
+        <div id="banner-sub"></div>
+      </div>
+      <div id="bot-hp-wrap" class="hidden"><span id="bot-hp-fill"></span></div>
+
       <!-- touch-only controls (shown via body.touch) -->
       <div id="touch-move-zone" class="touch-zone"></div>
       <div id="touch-look-zone" class="touch-zone"></div>
@@ -64,7 +77,32 @@
       <div class="menu-inner">
         <h1>RIFLE<span>.GG</span></h1>
         <p class="tagline">웹 기반 아레나 FPS</p>
-        <button id="play-btn">클릭하여 시작</button>
+
+        <div id="mode-row">
+          <button id="play-btn">연습장</button>
+          <button id="duel-btn">1v1 봇 대전</button>
+        </div>
+
+        <div id="difficulty-row">
+          <span class="row-label">봇 난이도</span>
+          <button class="diff-btn" data-diff="easy">쉬움</button>
+          <button class="diff-btn active" data-diff="normal">보통</button>
+          <button class="diff-btn" data-diff="hard">어려움</button>
+        </div>
+
+        <div id="loadout-row">
+          <div class="loadout-group">
+            <span class="row-label">주무기</span>
+            <button class="loadout-btn primary-btn active" data-id="ar">돌격소총</button>
+            <button class="loadout-btn primary-btn" data-id="shotgun">샷건</button>
+            <button class="loadout-btn primary-btn" data-id="sniper">저격총</button>
+          </div>
+          <div class="loadout-group">
+            <span class="row-label">보조무기</span>
+            <button class="loadout-btn secondary-btn active" data-id="pistol">권총</button>
+            <button class="loadout-btn secondary-btn" data-id="uzi">우지</button>
+          </div>
+        </div>
         <div class="controls">
           <span class="desktop-help"
             ><b>WASD</b> 이동 · <b>Space</b> 점프 · <b>Shift</b> 대시 · <b>C</b> 슬라이드 · <b>클릭</b> 발사 ·

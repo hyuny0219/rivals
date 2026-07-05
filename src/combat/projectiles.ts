@@ -50,6 +50,12 @@ export class ProjectileManager {
     return this.grenades.length
   }
 
+  /** Remove all live grenades without exploding (round reset). */
+  clear() {
+    for (const g of this.grenades) this.scene.remove(g.mesh)
+    this.grenades.length = 0
+  }
+
   update(dt: number) {
     for (let i = this.grenades.length - 1; i >= 0; i--) {
       const g = this.grenades[i]

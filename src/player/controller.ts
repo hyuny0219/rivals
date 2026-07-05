@@ -2,6 +2,17 @@ import * as THREE from 'three'
 import { Input } from '../core/input'
 import { PhysicsWorld } from '../world/physics'
 
+/**
+ * What the movement sim reads each step. The DOM-backed Input satisfies this;
+ * bots provide a virtual implementation — the controller itself is headless.
+ */
+export interface ControlSource {
+  isDown(code: string): boolean
+  wasPressed(code: string): boolean
+  readonly touchMoveX: number
+  readonly touchMoveY: number
+}
+
 const GRAVITY = 26
 const DASH_GRAVITY_SCALE = 0.35 // dash floats: reduced gravity while dashTimer > 0
 const WALK_SPEED = 8.5
@@ -67,7 +78,8 @@ export class PlayerController {
 
   constructor(
     private world: PhysicsWorld,
-    private camera: THREE.PerspectiveCamera,
+    /** Omitted for headless simulation (bots, future server). */
+    private camera?: THREE.PerspectiveCamera,
   ) {}
 
   /** Collision height, derived from stance so it can never desync. */
@@ -127,6 +139,7 @@ export class PlayerController {
   }
 
   private syncCameraRotation() {
+    if (!this.camera) return
     this.camera.rotation.set(
       THREE.MathUtils.clamp(this.pitch + this.punchPitch, -PITCH_LIMIT, PITCH_LIMIT),
       this.yaw + this.punchYaw,
@@ -136,7 +149,7 @@ export class PlayerController {
   }
 
   /** One fixed physics step. */
-  update(dt: number, input: Input) {
+  update(dt: number, input: ControlSource) {
     // input direction in world space (camera-relative, ground plane);
     // keyboard and virtual joystick share the same axes
     const forward = THREE.MathUtils.clamp(
@@ -187,7 +200,7 @@ export class PlayerController {
     this.updateCamera(dt)
   }
 
-  private updateDash(dt: number, input: Input) {
+  private updateDash(dt: number, input: ControlSource) {
     this.dashTimer = Math.max(0, this.dashTimer - dt)
     this.dashCooldown = Math.max(0, this.dashCooldown - dt)
     if ((input.wasPressed('ShiftLeft') || input.wasPressed('ShiftRight')) && this.dashCooldown === 0) {
@@ -203,7 +216,7 @@ export class PlayerController {
     }
   }
 
-  private updateSlide(input: Input) {
+  private updateSlide(input: ControlSource) {
     const slideKey = input.isDown('KeyC')
     const horizSpeed = this.horizontalSpeed()
 
@@ -315,6 +328,7 @@ export class PlayerController {
     // ease only the stance (crouch/stand) eye offset; body motion must not
     // leak into the easing or the camera drifts off the head during falls
     this.eyeSmooth = dt > 0 ? THREE.MathUtils.lerp(this.eyeSmooth, this.eyeHeight, Math.min(1, dt * EYE_EASE)) : this.eyeHeight
+    if (!this.camera) return
     this.camera.position.set(this.position.x, this.position.y + this.eyeSmooth, this.position.z)
     this.syncCameraRotation()
   }

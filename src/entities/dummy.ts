@@ -74,8 +74,18 @@ export class TargetDummy implements Damageable {
     return false
   }
 
+  /** Practice targets are disabled entirely during duels. */
+  private enabled = true
+
+  setEnabled(v: boolean) {
+    this.enabled = v
+    this.alive = v
+    this.hp = MAX_HP
+    this.group.visible = v
+  }
+
   update(dt: number) {
-    if (this.alive) return
+    if (!this.enabled || this.alive) return
     this.respawnTimer -= dt
     if (this.respawnTimer <= 0) {
       this.alive = true
