@@ -14,6 +14,9 @@ import { Bot, Difficulty } from './entities/bot'
 import { DuelManager } from './game/duel'
 import { AudioEngine } from './core/audio'
 import { loadSettings, saveSettings } from './core/settings'
+import { OnlineManager, defaultServerUrl, RoundInfo } from './net/online'
+import { RemotePlayer } from './entities/remote'
+import { WEAPONS } from './combat/weapons'
 
 const canvas = document.querySelector<HTMLCanvasElement>('#game')!
 const menu = document.querySelector<HTMLDivElement>('#menu')!
@@ -39,6 +42,13 @@ const bannerSub = document.querySelector<HTMLDivElement>('#banner-sub')!
 const botHpWrap = document.querySelector<HTMLDivElement>('#bot-hp-wrap')!
 const botHpFill = document.querySelector<HTMLSpanElement>('#bot-hp-fill')!
 const vignette = document.querySelector<HTMLDivElement>('#vignette')!
+const onlineCreateBtn = document.querySelector<HTMLButtonElement>('#online-create-btn')!
+const onlineJoinBtn = document.querySelector<HTMLButtonElement>('#online-join-btn')!
+const onlineCodeInput = document.querySelector<HTMLInputElement>('#online-code')!
+const onlineStatus = document.querySelector<HTMLDivElement>('#online-status')!
+const onlineStatusText = document.querySelector<HTMLSpanElement>('#online-status-text')!
+const onlineGoBtn = document.querySelector<HTMLButtonElement>('#online-go-btn')!
+const onlineCancelBtn = document.querySelector<HTMLButtonElement>('#online-cancel-btn')!
 
 const touchMode = isTouchDevice()
 if (touchMode) document.body.classList.add('touch')
@@ -102,6 +112,11 @@ const playerTarget: PlayerTarget = {
   hp: MAX_HP,
   lastDamageAt: -Infinity,
   takeDamage(amount: number): boolean {
+    if (online.active) {
+      // online: the server owns HP — report own-grenade self-damage as a claim
+      if (online.phase === 'combat') online.sendHit('grenade', amount, true)
+      return false
+    }
     if (duel.active && duel.frozen) return false // no damage during countdown/round end
     playerTarget.hp = Math.max(0, playerTarget.hp - amount)
     playerTarget.lastDamageAt = elapsed
@@ -179,10 +194,11 @@ const projectiles = new ProjectileManager(
   physics,
   effects,
   () => [...dummies, playerTarget, bot],
-  (target, _damage, killed) => {
+  (target, damage, killed) => {
     if (target !== playerTarget) {
       showHitmarker(killed)
       audio.hit(killed)
+      if (target === remote && online.active) online.sendHit('grenade', damage)
     }
   },
 )
@@ -197,9 +213,20 @@ const weapons = new WeaponController(
   (info) => {
     showHitmarker(info.killed && info.isHead ? true : info.killed)
     audio.hit(info.killed)
+    if (info.target === remote && online.active) online.sendHit(weapons.weapon.id, info.damage)
   },
   audio,
 )
+
+// online relays: tell the opponent about shots/grenades for their visuals
+weapons.onFired = (weaponId) => {
+  if (online.active && online.phase === 'combat') online.sendFire(weaponId)
+}
+weapons.onGrenadeThrown = (origin, dir) => {
+  if (online.active && online.phase === 'combat') {
+    online.sendGrenade([origin.x, origin.y, origin.z], [dir.x, dir.y, dir.z])
+  }
+}
 
 // ---------- 1v1 duel ----------
 const bot = new Bot(
@@ -278,6 +305,177 @@ function beginDuel() {
   botHpWrap.classList.remove('hidden')
 }
 
+// ---------- online 1v1 ----------
+const remote = new RemotePlayer(physics)
+scene.add(remote.group)
+
+let onlineSide = 0
+let onlineMyHp = MAX_HP
+let onlineEnemyHp = MAX_HP
+let onlineScoreYou = 0
+let onlineScoreEnemy = 0
+let onlineRound = 0
+let onlineGoRequested = false
+let onlineSendTimer = 0
+const onlineTimers: number[] = []
+const tmpEye = new THREE.Vector3()
+const tmpDir = new THREE.Vector3()
+
+function setOnlineStatus(html: string, showGo = false) {
+  onlineStatus.classList.remove('hidden')
+  onlineStatusText.innerHTML = html
+  onlineGoBtn.classList.toggle('hidden', !showGo)
+}
+
+function clearOnlineTimers() {
+  for (const id of onlineTimers) window.clearTimeout(id)
+  onlineTimers.length = 0
+}
+
+function handleOnlineRound(info: RoundInfo) {
+  onlineRound = info.round
+  onlineScoreYou = info.scoreYou
+  onlineScoreEnemy = info.scoreEnemy
+  onlineMyHp = info.hpYou
+  onlineEnemyHp = info.hpEnemy
+  clearOnlineTimers()
+
+  if (info.phase === 'countdown') {
+    for (const d of dummies) d.setEnabled(false)
+    player.spawn(map.spawns[onlineSide].position, map.spawns[onlineSide].yaw)
+    weapons.setLoadout(selectedPrimary, selectedSecondary)
+    projectiles.clear()
+    remote.activate(map.spawns[onlineSide ^ 1].position, map.spawns[onlineSide ^ 1].yaw)
+    scoreWrap.classList.remove('hidden')
+    botHpWrap.classList.remove('hidden')
+    // local countdown display; the server flips to combat after 3s
+    showBanner('3', `라운드 ${info.round}`, 0.95)
+    audio.countdownBeep()
+    for (const [delay, label] of [
+      [1000, '2'],
+      [2000, '1'],
+    ] as const) {
+      onlineTimers.push(
+        window.setTimeout(() => {
+          showBanner(label, `라운드 ${info.round}`, 0.95)
+          audio.countdownBeep()
+        }, delay),
+      )
+    }
+  } else if (info.phase === 'combat') {
+    showBanner('GO!', '', 0.7)
+    audio.go()
+  } else if (info.phase === 'roundEnd') {
+    showBanner(info.youWon ? '라운드 승리!' : '라운드 패배', `${info.scoreYou} : ${info.scoreEnemy}`, 2)
+    if (info.youWon) audio.roundWin()
+    else audio.roundLose()
+    addFeedEntry(info.youWon ? '<b>YOU</b> 상대 처치' : '<b>상대</b> YOU 처치')
+  } else if (info.phase === 'matchEnd') {
+    showBanner(info.youWon ? '승리!' : '패배', `${info.scoreYou} : ${info.scoreEnemy}`, 3.5)
+    if (info.youWon) audio.win()
+    else audio.lose()
+  }
+}
+
+function endOnlineCleanup() {
+  clearOnlineTimers()
+  online.leave()
+  remote.deactivate()
+  for (const d of dummies) d.setEnabled(true)
+  projectiles.clear()
+  playerTarget.hp = MAX_HP
+  playerTarget.lastDamageAt = -Infinity
+  scoreWrap.classList.add('hidden')
+  botHpWrap.classList.add('hidden')
+  onlineStatus.classList.add('hidden')
+  onlineGoBtn.classList.add('hidden')
+  if (document.pointerLockElement === canvas) document.exitPointerLock()
+  else if (playing) setPlaying(false)
+}
+
+const online = new OnlineManager({
+  onCreated: (code) => setOnlineStatus(`방 코드: <b>${code}</b> — 상대 대기 중…`),
+  onMatched: () => setOnlineStatus('상대 입장! 준비되면 시작을 누르세요', true),
+  onRound: handleOnlineRound,
+  onHp: (you, enemy) => {
+    if (you < onlineMyHp) {
+      audio.hurt()
+      damageFlash = Math.min(1, damageFlash + (onlineMyHp - you) / 50)
+    }
+    onlineMyHp = you
+    onlineEnemyHp = enemy
+  },
+  onPeerState: (snap) => remote.pushSnapshot(snap),
+  onPeerFire: (weaponId) => {
+    if (!remote.alive) return
+    remote.eyePosition(tmpEye)
+    tmpDir.set(
+      -Math.sin(remote.yaw) * Math.cos(remote.pitch),
+      Math.sin(remote.pitch),
+      -Math.cos(remote.yaw) * Math.cos(remote.pitch),
+    )
+    const hit = physics.raycast(tmpEye, tmpDir, 150)
+    const end = hit ? hit.point : tmpEye.clone().addScaledVector(tmpDir, 150)
+    effects.tracer(tmpEye.clone().addScaledVector(tmpDir, 0.6), end)
+    const dist = player.position.distanceTo(remote.position)
+    audio.shot(weaponId, Math.max(0.15, 0.8 * (1 - dist / 70)))
+  },
+  onPeerGrenade: (origin, dir) => {
+    // visual-only: damage authority stays with the thrower's claims
+    projectiles.throwGrenade(
+      new THREE.Vector3(...origin),
+      new THREE.Vector3(...dir),
+      WEAPONS.grenade.range,
+      0,
+    )
+  },
+  onPeerLeft: () => {
+    addFeedEntry('상대가 나갔습니다')
+    endOnlineCleanup()
+  },
+  onError: (reason) => {
+    setOnlineStatus(reason === 'no-room' ? '방을 찾을 수 없습니다' : '서버 오류가 발생했습니다')
+  },
+  onDisconnect: () => endOnlineCleanup(),
+})
+
+onlineCreateBtn.addEventListener('click', async () => {
+  if (online.active) return
+  audio.ensure()
+  setOnlineStatus('서버 연결 중…')
+  try {
+    onlineSide = 0
+    await online.create(defaultServerUrl())
+  } catch {
+    setOnlineStatus('서버에 연결할 수 없습니다 (잠시 후 다시 시도해주세요)')
+  }
+})
+
+onlineJoinBtn.addEventListener('click', async () => {
+  if (online.active) return
+  const code = onlineCodeInput.value.trim().toUpperCase()
+  if (code.length !== 4) return setOnlineStatus('4자리 방 코드를 입력하세요')
+  audio.ensure()
+  setOnlineStatus('입장 중…')
+  try {
+    onlineSide = 1
+    await online.join(defaultServerUrl(), code)
+  } catch {
+    setOnlineStatus('서버에 연결할 수 없습니다 (잠시 후 다시 시도해주세요)')
+  }
+})
+
+onlineGoBtn.addEventListener('click', () => {
+  onlineGoRequested = true
+  void startGame()
+})
+
+onlineCancelBtn.addEventListener('click', () => {
+  online.leave()
+  onlineStatus.classList.add('hidden')
+  onlineGoBtn.classList.add('hidden')
+})
+
 // ---------- HUD helpers ----------
 function showHitmarker(kill: boolean) {
   hitmarker.classList.remove('show', 'kill')
@@ -298,9 +496,10 @@ function addFeedEntry(html: string) {
 function updateHud() {
   dashFill.style.width = `${player.dashCharge * 100}%`
 
-  hpFill.style.width = `${(playerTarget.hp / MAX_HP) * 100}%`
-  hpFill.classList.toggle('low', playerTarget.hp <= 30)
-  hpNum.textContent = String(Math.round(playerTarget.hp))
+  const hpShown = online.active ? onlineMyHp : playerTarget.hp
+  hpFill.style.width = `${(hpShown / MAX_HP) * 100}%`
+  hpFill.classList.toggle('low', hpShown <= 30)
+  hpNum.textContent = String(Math.round(hpShown))
 
   const w = weapons.weapon
   if (w.kind === 'melee') {
@@ -325,6 +524,10 @@ function updateHud() {
     scorePlayer.textContent = String(duel.playerScore)
     scoreBot.textContent = String(duel.botScore)
     botHpFill.style.width = `${Math.max(0, bot.hp)}%`
+  } else if (online.active) {
+    scorePlayer.textContent = String(onlineScoreYou)
+    scoreBot.textContent = String(onlineScoreEnemy)
+    botHpFill.style.width = `${Math.max(0, onlineEnemyHp)}%`
   }
 }
 
@@ -362,12 +565,18 @@ function setPlaying(p: boolean) {
     pendingDuel = false
     beginDuel()
   }
+  if (p && onlineGoRequested) {
+    onlineGoRequested = false
+    online.ready()
+    showBanner('상대 준비 대기 중…', '', 3)
+  }
   if (!p) {
     weapons.resetAds() // don't leave the menu zoomed in
     if (duel.active) {
       duel.stop()
       endDuelCleanup()
     }
+    if (online.active) endOnlineCleanup() // leaving the game exits the match
   }
 }
 
@@ -431,10 +640,12 @@ async function startGame() {
 }
 
 playBtn.addEventListener('click', () => {
+  if (online.active) return // cancel the online room first
   pendingDuel = false
   void startGame()
 })
 duelBtn.addEventListener('click', () => {
+  if (online.active) return
   pendingDuel = true
   void startGame()
 })
@@ -526,7 +737,8 @@ function frame(now: number) {
     while (accumulator >= PHYSICS_STEP && steps < MAX_STEPS_PER_FRAME) {
       elapsed += PHYSICS_STEP
       duel.update(PHYSICS_STEP)
-      if (!(duel.active && duel.frozen)) {
+      const frozen = (duel.active && duel.frozen) || (online.active && online.frozen)
+      if (!frozen) {
         player.update(PHYSICS_STEP, input)
         syncPlayerCenter() // explosions this step must see the current position
         syncPlayerHitboxes()
@@ -535,7 +747,7 @@ function frame(now: number) {
         if (duel.active) bot.update(PHYSICS_STEP)
         // out-of-combat regen (practice only — duel rounds reset HP instead,
         // and regen would reward stalling behind cover)
-        if (!duel.active && playerTarget.hp < MAX_HP && elapsed - playerTarget.lastDamageAt > HP_REGEN_DELAY) {
+        if (!duel.active && !online.active && playerTarget.hp < MAX_HP && elapsed - playerTarget.lastDamageAt > HP_REGEN_DELAY) {
           playerTarget.hp = Math.min(MAX_HP, playerTarget.hp + HP_REGEN_PER_SECOND * PHYSICS_STEP)
         }
       }
@@ -543,6 +755,23 @@ function frame(now: number) {
       steps++
     }
     if (duelWasActive && !duel.active) endDuelCleanup() // match finished
+
+    // online: stream our state ~20Hz and animate the opponent every frame
+    if (online.active) {
+      remote.update(dt)
+      onlineSendTimer += dt
+      if (onlineSendTimer >= 0.05) {
+        onlineSendTimer = 0
+        online.sendState({
+          x: player.position.x,
+          y: player.position.y,
+          z: player.position.z,
+          yaw: player.yaw,
+          pitch: player.pitch,
+          sliding: player.sliding,
+        })
+      }
+    }
     if (steps === MAX_STEPS_PER_FRAME) accumulator = 0
     // keep presses buffered across frames that ran zero physics steps
     // (high-refresh displays) so taps are never dropped
@@ -626,6 +855,21 @@ requestAnimationFrame(frame)
       botZ: bot.controller.position.z,
     }
   },
+  get online() {
+    return {
+      phase: online.phase,
+      code: online.code,
+      side: onlineSide,
+      round: onlineRound,
+      myHp: onlineMyHp,
+      enemyHp: onlineEnemyHp,
+      scoreYou: onlineScoreYou,
+      scoreEnemy: onlineScoreEnemy,
+      remoteVisible: remote.alive,
+      remoteX: remote.position.x,
+      remoteZ: remote.position.z,
+    }
+  },
   get polish() {
     return {
       fov: camera.fov,
@@ -633,6 +877,10 @@ requestAnimationFrame(frame)
       vignette: vignette.style.opacity,
       audioState: (audio as unknown as { ctx: AudioContext | null })['ctx']?.state ?? 'none',
     }
+  },
+  /** Online test helper: claim damage on the opponent as if a shot landed. */
+  onlineClaim(damage: number) {
+    online.sendHit('sniper', damage)
   },
   damageBot(amount: number) {
     bot.takeDamage(amount, false)

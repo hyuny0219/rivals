@@ -85,6 +85,18 @@
           <button id="duel-btn">1v1 봇 대전</button>
         </div>
 
+        <div id="online-row">
+          <span class="row-label">온라인 1v1</span>
+          <button id="online-create-btn">방 만들기</button>
+          <input id="online-code" placeholder="코드" maxlength="4" autocomplete="off" spellcheck="false" />
+          <button id="online-join-btn">참가</button>
+        </div>
+        <div id="online-status" class="hidden">
+          <span id="online-status-text"></span>
+          <button id="online-go-btn" class="hidden">클릭하여 시작</button>
+          <button id="online-cancel-btn">취소</button>
+        </div>
+
         <div id="difficulty-row">
           <span class="row-label">봇 난이도</span>
           <button class="diff-btn" data-diff="easy">쉬움</button>
