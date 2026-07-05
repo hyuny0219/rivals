@@ -2,7 +2,10 @@
 <html lang="ko">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
+    />
     <title>RIFLE.GG</title>
     <meta name="description" content="브라우저에서 바로 플레이하는 아레나 FPS" />
     <link
@@ -16,6 +19,22 @@
     <div id="hud" class="hidden">
       <div id="crosshair"></div>
       <div id="dash-indicator"><span id="dash-fill"></span><label>대시 (Shift)</label></div>
+
+      <!-- touch-only controls (shown via body.touch) -->
+      <div id="touch-move-zone" class="touch-zone"></div>
+      <div id="touch-look-zone" class="touch-zone"></div>
+      <div id="joy-base"><div id="joy-knob"></div></div>
+      <button id="btn-jump" class="touch-btn">점프</button>
+      <button id="btn-dash" class="touch-btn">대시</button>
+      <button id="btn-slide" class="touch-btn">슬라이드</button>
+      <button id="btn-pause" class="touch-btn">❚❚</button>
+    </div>
+
+    <div id="rotate-overlay">
+      <div>
+        <div class="rotate-icon">📱↻</div>
+        <p>기기를 가로로 돌려주세요</p>
+      </div>
     </div>
 
     <div id="menu">
@@ -24,7 +43,12 @@
         <p class="tagline">웹 기반 아레나 FPS</p>
         <button id="play-btn">클릭하여 시작</button>
         <div class="controls">
-          <b>WASD</b> 이동 · <b>Space</b> 점프 · <b>Shift</b> 대시 · <b>C</b> 슬라이드 · <b>마우스</b> 시점
+          <span class="desktop-help"
+            ><b>WASD</b> 이동 · <b>Space</b> 점프 · <b>Shift</b> 대시 · <b>C</b> 슬라이드 · <b>마우스</b> 시점</span
+          >
+          <span class="touch-help"
+            ><b>왼쪽</b> 조이스틱 이동 · <b>오른쪽</b> 드래그 시점 · 버튼으로 점프/대시/슬라이드</span
+          >
         </div>
       </div>
     </div>

@@ -12,6 +12,8 @@ body {
   background: #0e1420;
   font-family: 'Segoe UI', 'Apple SD Gothic Neo', sans-serif;
   user-select: none;
+  touch-action: none;
+  -webkit-touch-callout: none;
 }
 
 #game {
@@ -135,4 +137,143 @@ body {
   background: #ff5a3c;
   width: 100%;
   transition: width 0.05s linear;
+}
+
+/* ---------- touch controls (body.touch only) ---------- */
+.touch-zone,
+#joy-base,
+.touch-btn,
+.touch-help {
+  display: none;
+}
+
+body.touch .desktop-help {
+  display: none;
+}
+
+body.touch .touch-help {
+  display: inline;
+}
+
+body.touch #dash-indicator {
+  left: auto;
+  right: 24px;
+  bottom: auto;
+  top: 18px;
+  width: 110px;
+}
+
+body.touch .touch-zone {
+  display: block;
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  pointer-events: auto;
+}
+
+#touch-move-zone {
+  left: 0;
+  width: 42%;
+}
+
+#touch-look-zone {
+  right: 0;
+  width: 58%;
+}
+
+body.touch #joy-base {
+  position: absolute;
+  width: 128px;
+  height: 128px;
+  margin: -64px 0 0 -64px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.08);
+  border: 2px solid rgba(255, 255, 255, 0.25);
+  display: none; /* shown while a move touch is active */
+}
+
+#joy-knob {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.45);
+  transform: translate(-50%, -50%);
+}
+
+body.touch .touch-btn {
+  display: block;
+  position: absolute;
+  pointer-events: auto;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  background: rgba(20, 28, 40, 0.45);
+  color: #eef2f7;
+  font-weight: 700;
+  border-radius: 50%;
+  -webkit-tap-highlight-color: transparent;
+}
+
+body.touch .touch-btn:active {
+  background: rgba(255, 90, 60, 0.55);
+}
+
+#btn-jump {
+  right: 28px;
+  bottom: 30px;
+  width: 84px;
+  height: 84px;
+  font-size: 15px;
+}
+
+#btn-dash {
+  right: 126px;
+  bottom: 96px;
+  width: 64px;
+  height: 64px;
+  font-size: 13px;
+}
+
+#btn-slide {
+  right: 140px;
+  bottom: 22px;
+  width: 64px;
+  height: 64px;
+  font-size: 11px;
+}
+
+#btn-pause {
+  left: 50%;
+  top: 14px;
+  transform: translateX(-50%);
+  width: 44px;
+  height: 44px;
+  border-radius: 10px;
+  font-size: 13px;
+}
+
+/* ---------- rotate-to-landscape overlay ---------- */
+#rotate-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  background: #0e1420;
+  color: #eef2f7;
+  text-align: center;
+  align-items: center;
+  justify-content: center;
+  font-size: 20px;
+}
+
+.rotate-icon {
+  font-size: 56px;
+  margin-bottom: 16px;
+}
+
+@media (orientation: portrait) {
+  body.touch #rotate-overlay {
+    display: flex;
+  }
 }

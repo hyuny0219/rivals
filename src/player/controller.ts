@@ -3,6 +3,7 @@ import { Input } from '../core/input'
 import { PhysicsWorld } from '../world/physics'
 
 const GRAVITY = 26
+const DASH_GRAVITY_SCALE = 0.35 // dash floats: reduced gravity while dashTimer > 0
 const WALK_SPEED = 8.5
 const GROUND_ACCEL = 90
 const GROUND_FRICTION = 11
@@ -29,6 +30,7 @@ const STEP_HEIGHT = 0.55
 const EPS = 0.001
 
 const PITCH_LIMIT = Math.PI / 2 - 0.01
+const EYE_EASE = 14
 
 /**
  * First-person character controller.
@@ -43,15 +45,15 @@ export class PlayerController {
   sensitivity = 0.0023
 
   grounded = false
+  sliding = false
   private coyote = 0
 
   private dashTimer = 0
   private dashCooldown = 0
   private dashDir = new THREE.Vector3()
 
-  sliding = false
-  private height = STAND_HEIGHT
-  private eye = STAND_EYE
+  /** Smoothed eye height for crouch/stand transitions only. */
+  private eyeSmooth = STAND_EYE
 
   // scratch objects, reused every frame to avoid GC churn
   private box = new THREE.Box3()
@@ -62,6 +64,15 @@ export class PlayerController {
     private world: PhysicsWorld,
     private camera: THREE.PerspectiveCamera,
   ) {}
+
+  /** Collision height, derived from stance so it can never desync. */
+  private get height(): number {
+    return this.sliding ? SLIDE_HEIGHT : STAND_HEIGHT
+  }
+
+  private get eyeHeight(): number {
+    return this.sliding ? SLIDE_EYE : STAND_EYE
+  }
 
   /** 0..1, how much of the dash cooldown has recovered. */
   get dashCharge(): number {
@@ -76,55 +87,70 @@ export class PlayerController {
     this.dashTimer = 0
     this.dashCooldown = 0
     this.sliding = false
-    this.setHeight(STAND_HEIGHT, STAND_EYE)
-    // snap the camera so there is no eye-height easing artifact on spawn
-    this.camera.position.set(point.x, point.y + STAND_EYE, point.z)
-    this.camera.rotation.set(0, yaw, 0, 'YXZ')
+    this.grounded = false
+    this.coyote = 0
+    this.eyeSmooth = STAND_EYE
+    this.updateCamera(0)
   }
 
-  /** Apply accumulated mouse deltas. Call once per rendered frame (not per physics step). */
+  /**
+   * Apply accumulated mouse deltas and sync the camera rotation.
+   * Call once per rendered frame (not per physics step) so high-refresh
+   * displays get fresh look rotation even on zero-physics-step frames.
+   */
   look(input: Input) {
     this.yaw -= input.mouseDX * this.sensitivity
     this.pitch -= input.mouseDY * this.sensitivity
     this.pitch = THREE.MathUtils.clamp(this.pitch, -PITCH_LIMIT, PITCH_LIMIT)
+    this.camera.rotation.set(this.pitch, this.yaw, 0, 'YXZ')
   }
 
   /** One fixed physics step. */
   update(dt: number, input: Input) {
-    // input direction in world space (camera-relative, ground plane)
-    const forward = Number(input.isDown('KeyW')) - Number(input.isDown('KeyS'))
-    const right = Number(input.isDown('KeyD')) - Number(input.isDown('KeyA'))
-    this.wish
-      .set(Math.sin(this.yaw) * -forward + Math.cos(this.yaw) * right, 0, Math.cos(this.yaw) * -forward - Math.sin(this.yaw) * right)
+    // input direction in world space (camera-relative, ground plane);
+    // keyboard and virtual joystick share the same axes
+    const forward = THREE.MathUtils.clamp(
+      Number(input.isDown('KeyW')) - Number(input.isDown('KeyS')) + input.touchMoveY,
+      -1,
+      1,
+    )
+    const right = THREE.MathUtils.clamp(
+      Number(input.isDown('KeyD')) - Number(input.isDown('KeyA')) + input.touchMoveX,
+      -1,
+      1,
+    )
+    this.wish.set(
+      Math.sin(this.yaw) * -forward + Math.cos(this.yaw) * right,
+      0,
+      Math.cos(this.yaw) * -forward - Math.sin(this.yaw) * right,
+    )
     if (this.wish.lengthSq() > 1) this.wish.normalize()
 
     this.updateDash(dt, input)
     this.updateSlide(input)
 
     if (this.dashTimer > 0) {
-      // dash overrides normal steering; keep vertical velocity frozen
+      // dash overrides horizontal steering; vertical physics keeps running
+      // (reduced gravity below) so jumps during a dash survive and a
+      // grounded dash keeps ground contact
       this.velocity.x = this.dashDir.x * DASH_SPEED
       this.velocity.z = this.dashDir.z * DASH_SPEED
-      this.velocity.y = 0
     } else if (this.sliding) {
       this.applyFriction(dt, SLIDE_FRICTION)
-      this.velocity.y -= GRAVITY * dt
     } else if (this.grounded) {
       this.applyFriction(dt, GROUND_FRICTION)
       this.accelerate(dt, GROUND_ACCEL, WALK_SPEED)
-      this.velocity.y -= GRAVITY * dt
     } else {
       this.accelerate(dt, AIR_ACCEL, AIR_SPEED_CAP)
-      this.velocity.y -= GRAVITY * dt
     }
+    this.velocity.y -= GRAVITY * (this.dashTimer > 0 ? DASH_GRAVITY_SCALE : 1) * dt
 
     // jump (with a little coyote time off ledges)
     this.coyote = this.grounded ? COYOTE_TIME : Math.max(0, this.coyote - dt)
     if (input.wasPressed('Space') && this.coyote > 0) {
       this.velocity.y = JUMP_VELOCITY
       this.coyote = 0
-      this.sliding = false
-      this.setHeight(STAND_HEIGHT, STAND_EYE)
+      this.standUpIfPossible()
     }
 
     this.moveAndCollide(dt)
@@ -143,42 +169,37 @@ export class PlayerController {
       } else {
         this.dashDir.set(-Math.sin(this.yaw), 0, -Math.cos(this.yaw))
       }
-      this.sliding = false
-      this.setHeight(STAND_HEIGHT, STAND_EYE)
+      this.standUpIfPossible()
     }
   }
 
   private updateSlide(input: Input) {
-    const slideKey = input.isDown('KeyC') || input.isDown('ControlLeft')
-    const horizSpeed = Math.hypot(this.velocity.x, this.velocity.z)
+    const slideKey = input.isDown('KeyC')
+    const horizSpeed = this.horizontalSpeed()
 
     if (!this.sliding && slideKey && this.grounded && horizSpeed > SLIDE_MIN_START_SPEED) {
       this.sliding = true
       this.velocity.x *= SLIDE_BOOST
       this.velocity.z *= SLIDE_BOOST
-      this.setHeight(SLIDE_HEIGHT, SLIDE_EYE)
     } else if (this.sliding && (!slideKey || horizSpeed < SLIDE_MIN_SPEED)) {
-      // only stand back up if there is headroom
-      if (this.canStand()) {
-        this.sliding = false
-        this.setHeight(STAND_HEIGHT, STAND_EYE)
-      }
+      this.standUpIfPossible()
     }
   }
 
-  private canStand(): boolean {
+  /** Leave the slide stance only when there is headroom to stand. */
+  private standUpIfPossible() {
+    if (!this.sliding) return
     this.computeBox(this.box, this.position, STAND_HEIGHT)
     this.box.min.y = this.position.y + SLIDE_HEIGHT
-    return this.world.isFree(this.box)
+    if (this.world.isFree(this.box)) this.sliding = false
   }
 
-  private setHeight(h: number, eye: number) {
-    this.height = h
-    this.eye = eye
+  private horizontalSpeed(): number {
+    return Math.hypot(this.velocity.x, this.velocity.z)
   }
 
   private applyFriction(dt: number, friction: number) {
-    const speed = Math.hypot(this.velocity.x, this.velocity.z)
+    const speed = this.horizontalSpeed()
     if (speed < 0.01) {
       this.velocity.x = 0
       this.velocity.z = 0
@@ -208,13 +229,16 @@ export class PlayerController {
   }
 
   private moveAndCollide(dt: number) {
+    // step-up must not trigger mid-air (it would let players mantle walls),
+    // so gate it on the ground state of the previous step
+    const wasGrounded = this.grounded
     this.grounded = false
-    this.moveAxis('x', this.velocity.x * dt)
-    this.moveAxis('y', this.velocity.y * dt)
-    this.moveAxis('z', this.velocity.z * dt)
+    this.moveAxis('x', this.velocity.x * dt, wasGrounded)
+    this.moveAxis('y', this.velocity.y * dt, wasGrounded)
+    this.moveAxis('z', this.velocity.z * dt, wasGrounded)
   }
 
-  private moveAxis(axis: 'x' | 'y' | 'z', amount: number) {
+  private moveAxis(axis: 'x' | 'y' | 'z', amount: number, wasGrounded: boolean) {
     if (amount === 0 && axis !== 'y') return
     this.position[axis] += amount
     this.computeBox(this.box, this.position, this.height)
@@ -233,9 +257,7 @@ export class PlayerController {
       } else {
         // step-up assist: low obstacles (stairs, curbs) don't stop grounded movement
         const lift = hit.max.y - this.position.y
-        if (this.grounded || this.velocity.y <= 0) {
-          if (lift > 0 && lift <= STEP_HEIGHT && this.tryStepUp(hit.max.y)) continue
-        }
+        if (wasGrounded && lift > 0 && lift <= STEP_HEIGHT && this.tryStepUp(hit.max.y)) continue
         if (amount > 0) {
           this.position[axis] = hit.min[axis] - HALF_WIDTH - EPS
         } else {
@@ -260,12 +282,10 @@ export class PlayerController {
   }
 
   private updateCamera(dt: number) {
-    // smooth eye height changes (slide crouch/stand)
-    const targetEye = this.eye
-    const currentEye = this.camera.position.y - this.position.y
-    const eased = THREE.MathUtils.lerp(currentEye, targetEye, Math.min(1, dt * 14))
-
-    this.camera.position.set(this.position.x, this.position.y + eased, this.position.z)
+    // ease only the stance (crouch/stand) eye offset; body motion must not
+    // leak into the easing or the camera drifts off the head during falls
+    this.eyeSmooth = dt > 0 ? THREE.MathUtils.lerp(this.eyeSmooth, this.eyeHeight, Math.min(1, dt * EYE_EASE)) : this.eyeHeight
+    this.camera.position.set(this.position.x, this.position.y + this.eyeSmooth, this.position.z)
     this.camera.rotation.set(this.pitch, this.yaw, 0, 'YXZ')
   }
 }

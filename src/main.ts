@@ -1,6 +1,7 @@
 import * as THREE from 'three'
 import './style.css'
 import { Input } from './core/input'
+import { TouchControls, isTouchDevice } from './core/touch'
 import { PhysicsWorld } from './world/physics'
 import { buildMap } from './world/map'
 import { PlayerController } from './player/controller'
@@ -11,12 +12,19 @@ const hud = document.querySelector<HTMLDivElement>('#hud')!
 const playBtn = document.querySelector<HTMLButtonElement>('#play-btn')!
 const dashFill = document.querySelector<HTMLSpanElement>('#dash-fill')!
 
+const touchMode = isTouchDevice()
+if (touchMode) document.body.classList.add('touch')
+
 // ---------- renderer / scene ----------
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true })
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
 renderer.setSize(window.innerWidth, window.innerHeight)
 renderer.shadowMap.enabled = true
 renderer.shadowMap.type = THREE.PCFSoftShadowMap
+// the map is fully static, so render the shadow map once; re-enable
+// autoUpdate (or set needsUpdate per frame) when moving casters land in Phase 2+
+renderer.shadowMap.autoUpdate = false
+renderer.shadowMap.needsUpdate = true
 
 const scene = new THREE.Scene()
 scene.background = new THREE.Color(0x8fc4e8)
@@ -48,10 +56,51 @@ scene.add(map.group)
 
 const input = new Input()
 const player = new PlayerController(physics, camera)
-player.spawn(map.spawns[0].position, map.spawns[0].yaw)
 
-// ---------- pointer lock / menu flow ----------
-function startGame() {
+function respawn() {
+  player.spawn(map.spawns[0].position, map.spawns[0].yaw)
+}
+respawn()
+
+// ---------- touch controls ----------
+if (touchMode) {
+  const touch = new TouchControls(
+    input,
+    document.querySelector('#touch-move-zone')!,
+    document.querySelector('#touch-look-zone')!,
+    document.querySelector('#joy-base')!,
+    document.querySelector('#joy-knob')!,
+  )
+  touch.bindButton(document.querySelector('#btn-jump')!, 'Space')
+  touch.bindButton(document.querySelector('#btn-dash')!, 'ShiftLeft')
+  touch.bindButton(document.querySelector('#btn-slide')!, 'KeyC')
+  document.querySelector('#btn-pause')!.addEventListener('click', () => setPlaying(false))
+  window.addEventListener('contextmenu', (e) => e.preventDefault())
+}
+
+// ---------- play state / pointer lock ----------
+let playing = false
+
+function setPlaying(p: boolean) {
+  playing = p
+  menu.classList.toggle('hidden', p)
+  hud.classList.toggle('hidden', !p)
+}
+
+async function startGame() {
+  if (touchMode) {
+    // best effort: fullscreen + landscape lock (not available on iOS Safari,
+    // where the portrait rotate-overlay is the fallback)
+    try {
+      await document.documentElement.requestFullscreen({ navigationUI: 'hide' })
+      type LockableOrientation = ScreenOrientation & { lock?: (o: string) => Promise<void> }
+      await (screen.orientation as LockableOrientation).lock?.('landscape')
+    } catch {
+      /* unsupported — overlay handles portrait */
+    }
+    setPlaying(true)
+    return
+  }
   // requestPointerLock rejects if called too soon after Esc (browser cooldown)
   try {
     const result = canvas.requestPointerLock() as unknown
@@ -64,9 +113,7 @@ function startGame() {
 playBtn.addEventListener('click', startGame)
 
 document.addEventListener('pointerlockchange', () => {
-  const locked = document.pointerLockElement === canvas
-  menu.classList.toggle('hidden', locked)
-  hud.classList.toggle('hidden', !locked)
+  if (!touchMode) setPlaying(document.pointerLockElement === canvas)
 })
 
 document.addEventListener('mousemove', (e) => {
@@ -94,8 +141,9 @@ function frame(now: number) {
   const dt = Math.min((now - lastTime) / 1000, 0.25)
   lastTime = now
 
-  if (document.pointerLockElement === canvas) {
+  if (playing) {
     player.look(input) // mouse look once per frame, not per physics step
+    input.clearMouse()
     accumulator += dt
     let steps = 0
     while (accumulator >= PHYSICS_STEP && steps < MAX_STEPS_PER_FRAME) {
@@ -104,16 +152,18 @@ function frame(now: number) {
       steps++
     }
     if (steps === MAX_STEPS_PER_FRAME) accumulator = 0
+    // keep presses buffered across frames that ran zero physics steps
+    // (high-refresh displays) so taps are never dropped
+    if (steps > 0) input.clearPressed()
     dashFill.style.width = `${player.dashCharge * 100}%`
   } else {
     accumulator = 0
+    input.clearMouse()
+    input.clearPressed()
   }
-  input.endFrame()
 
   // safety net: fell out of the map somehow → respawn
-  if (player.position.y < -20) {
-    player.spawn(map.spawns[0].position, map.spawns[0].yaw)
-  }
+  if (player.position.y < -20) respawn()
 
   renderer.render(scene, camera)
   requestAnimationFrame(frame)

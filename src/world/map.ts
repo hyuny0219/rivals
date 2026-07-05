@@ -41,6 +41,10 @@ export function buildMap(world: PhysicsWorld): GameMap {
     return m
   }
 
+  // one unit cube shared by every box; per-mesh size comes from scale
+  // (safe for untextured Lambert: normals are renormalized by normalMatrix)
+  const unitBox = new THREE.BoxGeometry(1, 1, 1)
+
   /** Box with bottom-center at (x, y, z); registers a collider unless decorative. */
   const box = (
     x: number,
@@ -52,7 +56,8 @@ export function buildMap(world: PhysicsWorld): GameMap {
     color: number,
     solid = true,
   ) => {
-    const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), material(color))
+    const mesh = new THREE.Mesh(unitBox, material(color))
+    mesh.scale.set(w, h, d)
     mesh.position.set(x, y + h / 2, z)
     mesh.castShadow = true
     mesh.receiveShadow = true
