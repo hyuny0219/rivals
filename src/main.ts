@@ -29,6 +29,7 @@ const ammoMag = document.querySelector<HTMLSpanElement>('#ammo-mag')!
 const ammoMax = document.querySelector<HTMLSpanElement>('#ammo-max')!
 const weaponName = document.querySelector<HTMLDivElement>('#weapon-name')!
 const slotEls = [...document.querySelectorAll<HTMLSpanElement>('#weapon-slots span')]
+const touchSlotEls = [...document.querySelectorAll<HTMLButtonElement>('.slot-btn')]
 const crosshair = document.querySelector<HTMLDivElement>('#crosshair')!
 const hitmarker = document.querySelector<HTMLDivElement>('#hitmarker')!
 const killfeed = document.querySelector<HTMLDivElement>('#killfeed')!
@@ -516,6 +517,9 @@ function updateHud() {
     slotEls[i].textContent = String(i + 1)
     slotEls[i].classList.toggle('active', w.slot === SLOT_ORDER[i])
   }
+  for (let i = 0; i < touchSlotEls.length; i++) {
+    touchSlotEls[i].classList.toggle('active', w.slot === SLOT_ORDER[i])
+  }
 
   crosshair.style.setProperty('--gap', `${weapons.crosshairGap.toFixed(1)}px`)
   crosshair.style.display = weapons.aiming && w.id === 'sniper' ? 'none' : ''
@@ -532,6 +536,17 @@ function updateHud() {
 }
 
 // ---------- touch controls ----------
+const btnAds = document.querySelector<HTMLButtonElement>('#btn-ads')!
+const pauseOverlay = document.querySelector<HTMLDivElement>('#pause-overlay')!
+let adsToggled = false
+
+function setAdsToggle(on: boolean) {
+  adsToggled = on
+  if (on) input.virtualDown('Mouse2')
+  else input.virtualUp('Mouse2')
+  btnAds.classList.toggle('active', on)
+}
+
 if (touchMode) {
   const touch = new TouchControls(
     input,
@@ -544,13 +559,29 @@ if (touchMode) {
   touch.bindButton(document.querySelector('#btn-dash')!, 'ShiftLeft')
   touch.bindButton(document.querySelector('#btn-slide')!, 'KeyC')
   touch.bindButton(document.querySelector('#btn-fire')!, 'Mouse0')
-  touch.bindButton(document.querySelector('#btn-ads')!, 'Mouse2')
+  touch.bindButton(document.querySelector('#btn-fire-left')!, 'Mouse0')
   touch.bindButton(document.querySelector('#btn-reload')!, 'KeyR')
   for (const btn of document.querySelectorAll<HTMLButtonElement>('.slot-btn')) {
     touch.bindButton(btn, btn.dataset.key!)
   }
-  document.querySelector('#btn-pause')!.addEventListener('click', () => setPlaying(false))
+  // ADS is tap-to-toggle on touch: holding a button ties up a whole finger
+  btnAds.addEventListener('pointerdown', (e) => {
+    e.preventDefault()
+    setAdsToggle(!adsToggled)
+  })
+  // pause asks for confirmation instead of instantly quitting the match
+  document.querySelector('#btn-pause')!.addEventListener('click', () => {
+    pauseOverlay.classList.remove('hidden')
+  })
 }
+
+document.querySelector('#pause-resume-btn')!.addEventListener('click', () => {
+  pauseOverlay.classList.add('hidden')
+})
+document.querySelector('#pause-quit-btn')!.addEventListener('click', () => {
+  pauseOverlay.classList.add('hidden')
+  setPlaying(false)
+})
 window.addEventListener('contextmenu', (e) => e.preventDefault())
 
 // ---------- play state / pointer lock ----------
@@ -561,6 +592,8 @@ function setPlaying(p: boolean) {
   menu.classList.toggle('hidden', p)
   hud.classList.toggle('hidden', !p)
   input.releaseAll()
+  setAdsToggle(false) // releaseAll dropped the virtual key; keep UI in sync
+  pauseOverlay.classList.add('hidden')
   if (p && pendingDuel && !duel.active) {
     pendingDuel = false
     beginDuel()
@@ -838,6 +871,7 @@ requestAnimationFrame(frame)
       ammo: weapons.ammoInMag,
       reloading: weapons.isReloading,
       grenades: projectiles.activeCount,
+      aiming: weapons.aiming,
     }
   },
   get dummies() {
