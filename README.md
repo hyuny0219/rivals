@@ -2,6 +2,8 @@
 
 로블록스 RIVALS에서 영감을 받은 웹 기반 아레나 FPS. 브라우저에서 바로 실행됩니다.
 
+**▶ 지금 플레이: [rifle-gg.onrender.com](https://rifle-gg.onrender.com)** (데스크톱·모바일 지원)
+
 ## 실행 방법
 
 ```bash
