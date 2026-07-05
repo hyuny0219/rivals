@@ -43,6 +43,14 @@ export interface RosterInfo {
   you: string
   players: RosterEntry[]
   bots: RosterEntry[]
+  stats?: Record<string, { k: number; d: number }>
+}
+
+export interface KillInfo {
+  by: string
+  victim: string
+  weapon: string
+  head?: boolean
 }
 
 export interface RoundInfo {
@@ -52,6 +60,7 @@ export interface RoundInfo {
   scoreEnemy: number
   /** Server-authoritative HP per entity id. */
   hps: Record<string, number>
+  stats?: Record<string, { k: number; d: number }>
   youWon?: boolean
   draw?: boolean
 }
@@ -66,6 +75,7 @@ export interface OnlineCallbacks {
   onPeerFire: (id: string, weaponId: string) => void
   onPeerGrenade: (id: string, origin: [number, number, number], dir: [number, number, number]) => void
   onRoomList: (rooms: RoomSummary[]) => void
+  onKill: (info: KillInfo) => void
   onError: (reason: string) => void
   onDisconnect: (reason: string) => void
   /** Fired when a dropped connection starts trying to rejoin. */
@@ -299,8 +309,15 @@ export class OnlineManager {
     this.send({ t: 'grenade', origin, dir, ...(asId ? { id: asId } : {}) })
   }
 
-  sendHit(weaponId: string, damage: number, targetId: string, attackerId?: string) {
-    this.send({ t: 'hit', weapon: weaponId, damage, target: targetId, ...(attackerId ? { attacker: attackerId } : {}) })
+  sendHit(weaponId: string, damage: number, targetId: string, attackerId?: string, head?: boolean) {
+    this.send({
+      t: 'hit',
+      weapon: weaponId,
+      damage,
+      target: targetId,
+      ...(attackerId ? { attacker: attackerId } : {}),
+      ...(head ? { head: true } : {}),
+    })
   }
 
   private send(msg: Record<string, unknown>) {
@@ -317,6 +334,9 @@ export class OnlineManager {
     switch (msg.t) {
       case 'roomList':
         this.cb.onRoomList((msg.rooms as RoomSummary[]) ?? [])
+        break
+      case 'kill':
+        this.cb.onKill(msg as unknown as KillInfo)
         break
       case 'created':
         this.code = String(msg.code)
