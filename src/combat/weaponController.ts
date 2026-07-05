@@ -92,6 +92,12 @@ export class WeaponController {
 
   private adsHeld = false
 
+  /** In-slot cycling (press the same slot key again) — practice range only;
+   * during duels/online the loadout is locked. */
+  allowCycling = true
+  private prevSelection: { slot: WeaponSlot; index: number } | null = null
+  private quickThrowCooldown = 0
+
   /** Online relay hooks (visual-only info for the opponent's client). */
   onFired?: (weaponId: string) => void
   onGrenadeThrown?: (origin: THREE.Vector3, dir: THREE.Vector3) => void
@@ -125,7 +131,17 @@ export class WeaponController {
       for (let i = 0; i < SLOT_ORDER.length; i++) {
         if (input.consumePress(`Digit${i + 1}`)) this.selectSlot(SLOT_ORDER[i])
       }
+      // mouse wheel steps across slots; Q swaps to the previous weapon
+      if (input.consumePress('WheelDown')) this.stepSlot(1)
+      if (input.consumePress('WheelUp')) this.stepSlot(-1)
+      if (input.consumePress('KeyQ') && this.prevSelection) {
+        this.applySelection(this.prevSelection.slot, this.prevSelection.index)
+      }
     }
+
+    // grenade quick-throw without switching weapons
+    this.quickThrowCooldown = Math.max(0, this.quickThrowCooldown - dt)
+    if (input.consumePress('KeyG')) this.quickThrowGrenade()
 
     // reload
     if (this.reloadTimer > 0) {
@@ -160,18 +176,52 @@ export class WeaponController {
   }
 
   private selectSlot(slot: WeaponSlot) {
-    if (this.switchTimer > 0) return
     if (slot === this.currentSlot) {
+      if (!this.allowCycling) return
       const list = SLOT_WEAPONS[slot]
       if (list.length < 2) return
-      this.slotIndex[slot] = (this.slotIndex[slot] + 1) % list.length
+      this.applySelection(slot, (this.slotIndex[slot] + 1) % list.length)
+      return
     }
+    this.applySelection(slot, this.slotIndex[slot])
+  }
+
+  /** Step to the adjacent slot in HUD order (mouse wheel). */
+  private stepSlot(dir: 1 | -1) {
+    const i = SLOT_ORDER.indexOf(this.currentSlot)
+    const next = SLOT_ORDER[(i + dir + SLOT_ORDER.length) % SLOT_ORDER.length]
+    this.applySelection(next, this.slotIndex[next])
+  }
+
+  private applySelection(slot: WeaponSlot, index: number) {
+    if (this.switchTimer > 0) return
+    if (slot === this.currentSlot && index === this.slotIndex[slot]) return
+    this.prevSelection = { slot: this.currentSlot, index: this.slotIndex[this.currentSlot] }
     this.currentSlot = slot
+    this.slotIndex[slot] = index
     this.reloadTimer = 0
     this.switchTimer = SWITCH_TIME
     this.bloom = 0
     this.audio?.weaponSwitch()
     this.buildViewmodel()
+  }
+
+  /** Throw a grenade while keeping the current weapon in hand (G key). */
+  private quickThrowGrenade() {
+    const def = WEAPONS.grenade
+    const count = this.mag.get('grenade') ?? 0
+    if (count <= 0 || this.quickThrowCooldown > 0 || this.switchTimer > 0) return
+    if (this.weapon.kind === 'projectile') {
+      // already holding the grenade — the normal fire path handles it
+      return
+    }
+    this.mag.set('grenade', count - 1)
+    this.quickThrowCooldown = 60 / def.rpm
+    this.camera.getWorldDirection(this.vDir)
+    this.projectiles.throwGrenade(this.camera.position, this.vDir, def.range, def.damage)
+    this.audio?.throwGrenade()
+    this.onGrenadeThrown?.(this.camera.position, this.vDir)
+    this.player.punch(def.kick, 0)
   }
 
   private tryReload() {
@@ -282,6 +332,8 @@ export class WeaponController {
     this.slotIndex.primary = Math.max(0, SLOT_WEAPONS.primary.indexOf(primaryId))
     this.slotIndex.secondary = Math.max(0, SLOT_WEAPONS.secondary.indexOf(secondaryId))
     this.currentSlot = 'primary'
+    this.prevSelection = null
+    this.quickThrowCooldown = 0
     this.reloadTimer = 0
     this.fireCooldown = 0
     this.switchTimer = 0

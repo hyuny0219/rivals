@@ -289,6 +289,7 @@ const duel = new DuelManager({
 function endDuelCleanup() {
   bot.alive = false
   bot.group.visible = false
+  weapons.allowCycling = true
   for (const d of dummies) d.setEnabled(true)
   projectiles.clear()
   playerTarget.hp = MAX_HP // don't carry a dead/damaged state into practice
@@ -301,6 +302,7 @@ function endDuelCleanup() {
 
 function beginDuel() {
   for (const d of dummies) d.setEnabled(false)
+  weapons.allowCycling = false // duel loadout is locked
   duel.startMatch()
   scoreWrap.classList.remove('hidden')
   botHpWrap.classList.remove('hidden')
@@ -343,6 +345,7 @@ function handleOnlineRound(info: RoundInfo) {
 
   if (info.phase === 'countdown') {
     for (const d of dummies) d.setEnabled(false)
+    weapons.allowCycling = false // online loadout is locked
     player.spawn(map.spawns[onlineSide].position, map.spawns[onlineSide].yaw)
     weapons.setLoadout(selectedPrimary, selectedSecondary)
     projectiles.clear()
@@ -382,6 +385,7 @@ function endOnlineCleanup() {
   clearOnlineTimers()
   online.leave()
   remote.deactivate()
+  weapons.allowCycling = true
   for (const d of dummies) d.setEnabled(true)
   projectiles.clear()
   playerTarget.hp = MAX_HP
@@ -577,6 +581,8 @@ if (touchMode) {
 
 document.querySelector('#pause-resume-btn')!.addEventListener('click', () => {
   pauseOverlay.classList.add('hidden')
+  // desktop pause released pointer lock; resume needs to re-acquire it
+  if (!touchMode && !playing) void startGame()
 })
 document.querySelector('#pause-quit-btn')!.addEventListener('click', () => {
   pauseOverlay.classList.add('hidden')
@@ -699,8 +705,36 @@ wireToggleGroup('.primary-btn', (id) => (selectedPrimary = id))
 wireToggleGroup('.secondary-btn', (id) => (selectedSecondary = id))
 
 document.addEventListener('pointerlockchange', () => {
-  if (!touchMode) setPlaying(document.pointerLockElement === canvas)
+  if (touchMode) return
+  const locked = document.pointerLockElement === canvas
+  if (locked) {
+    pauseOverlay.classList.add('hidden')
+    setPlaying(true)
+    return
+  }
+  // Esc during a match pauses instead of forfeiting; the sim freezes
+  // (playing=false) and 계속하기 re-locks the pointer
+  if (playing && (duel.active || online.active)) {
+    playing = false
+    hud.classList.add('hidden')
+    input.releaseAll()
+    setAdsToggle(false)
+    weapons.resetAds()
+    pauseOverlay.classList.remove('hidden')
+  } else if (playing) {
+    setPlaying(false)
+  }
 })
+
+// mouse wheel steps weapon slots (desktop)
+window.addEventListener(
+  'wheel',
+  (e) => {
+    if (document.pointerLockElement !== canvas) return
+    if (e.deltaY !== 0) input.pressOnce(e.deltaY > 0 ? 'WheelDown' : 'WheelUp')
+  },
+  { passive: true },
+)
 
 document.addEventListener('mousemove', (e) => {
   if (document.pointerLockElement === canvas) {

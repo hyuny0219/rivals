@@ -9,6 +9,8 @@ const GAME_KEYS = new Set([
   'ShiftRight',
   'KeyC',
   'KeyR',
+  'KeyQ',
+  'KeyG',
   'Digit1',
   'Digit2',
   'Digit3',
@@ -63,6 +65,11 @@ export class Input {
   /** Touch buttons synthesize key codes so they share the keyboard code path. */
   virtualDown(code: string) {
     this.down.add(code)
+    this.pressed.add(code)
+  }
+
+  /** One-shot synthetic press with no held state (mouse wheel notches). */
+  pressOnce(code: string) {
     this.pressed.add(code)
   }
 
