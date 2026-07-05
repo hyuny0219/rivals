@@ -43,6 +43,11 @@ export class PlayerController {
   yaw = 0
   pitch = 0
   sensitivity = 0.0023
+  /** Sensitivity multiplier (ADS lowers it). */
+  sensScale = 1
+  /** Decaying recoil offsets applied on top of pitch/yaw. */
+  private punchPitch = 0
+  private punchYaw = 0
 
   grounded = false
   sliding = false
@@ -93,16 +98,34 @@ export class PlayerController {
     this.updateCamera(0)
   }
 
+  /** Weapon recoil: kick the view up (and a touch sideways), decaying over time. */
+  punch(pitchKick: number, yawKick: number) {
+    this.punchPitch = Math.min(this.punchPitch + pitchKick, 0.12)
+    this.punchYaw += yawKick
+  }
+
   /**
    * Apply accumulated mouse deltas and sync the camera rotation.
    * Call once per rendered frame (not per physics step) so high-refresh
    * displays get fresh look rotation even on zero-physics-step frames.
    */
-  look(input: Input) {
-    this.yaw -= input.mouseDX * this.sensitivity
-    this.pitch -= input.mouseDY * this.sensitivity
+  look(input: Input, dt: number) {
+    this.yaw -= input.mouseDX * this.sensitivity * this.sensScale
+    this.pitch -= input.mouseDY * this.sensitivity * this.sensScale
     this.pitch = THREE.MathUtils.clamp(this.pitch, -PITCH_LIMIT, PITCH_LIMIT)
-    this.camera.rotation.set(this.pitch, this.yaw, 0, 'YXZ')
+    const decay = Math.min(1, dt * 9)
+    this.punchPitch *= 1 - decay
+    this.punchYaw *= 1 - decay
+    this.syncCameraRotation()
+  }
+
+  private syncCameraRotation() {
+    this.camera.rotation.set(
+      THREE.MathUtils.clamp(this.pitch + this.punchPitch, -PITCH_LIMIT, PITCH_LIMIT),
+      this.yaw + this.punchYaw,
+      0,
+      'YXZ',
+    )
   }
 
   /** One fixed physics step. */
@@ -286,6 +309,6 @@ export class PlayerController {
     // leak into the easing or the camera drifts off the head during falls
     this.eyeSmooth = dt > 0 ? THREE.MathUtils.lerp(this.eyeSmooth, this.eyeHeight, Math.min(1, dt * EYE_EASE)) : this.eyeHeight
     this.camera.position.set(this.position.x, this.position.y + this.eyeSmooth, this.position.z)
-    this.camera.rotation.set(this.pitch, this.yaw, 0, 'YXZ')
+    this.syncCameraRotation()
   }
 }

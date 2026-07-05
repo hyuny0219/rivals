@@ -106,12 +106,217 @@ body {
   position: absolute;
   left: 50%;
   top: 50%;
-  width: 6px;
-  height: 6px;
-  margin: -3px 0 0 -3px;
-  border-radius: 50%;
+  --gap: 8px;
+}
+
+#crosshair i {
+  position: absolute;
   background: #fff;
-  box-shadow: 0 0 3px rgba(0, 0, 0, 0.8);
+  box-shadow: 0 0 2px rgba(0, 0, 0, 0.9);
+}
+
+#crosshair i:nth-child(1) {
+  width: 2px;
+  height: 8px;
+  left: -1px;
+  top: calc(-1 * var(--gap) - 8px);
+}
+
+#crosshair i:nth-child(2) {
+  width: 2px;
+  height: 8px;
+  left: -1px;
+  top: var(--gap);
+}
+
+#crosshair i:nth-child(3) {
+  width: 8px;
+  height: 2px;
+  top: -1px;
+  left: calc(-1 * var(--gap) - 8px);
+}
+
+#crosshair i:nth-child(4) {
+  width: 8px;
+  height: 2px;
+  top: -1px;
+  left: var(--gap);
+}
+
+/* hitmarker: X flash on confirmed hit */
+#hitmarker {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  opacity: 0;
+}
+
+#hitmarker.show {
+  animation: hitflash 0.18s ease-out;
+}
+
+#hitmarker.kill i {
+  background: #ff4030;
+}
+
+#hitmarker i {
+  position: absolute;
+  width: 2.5px;
+  height: 10px;
+  background: #fff;
+  box-shadow: 0 0 2px rgba(0, 0, 0, 0.9);
+}
+
+#hitmarker i:nth-child(1) {
+  transform: translate(-7px, -12px) rotate(-45deg);
+}
+
+#hitmarker i:nth-child(2) {
+  transform: translate(5px, -12px) rotate(45deg);
+}
+
+#hitmarker i:nth-child(3) {
+  transform: translate(-7px, 2px) rotate(45deg);
+}
+
+#hitmarker i:nth-child(4) {
+  transform: translate(5px, 2px) rotate(-45deg);
+}
+
+@keyframes hitflash {
+  0% {
+    opacity: 1;
+    transform: scale(1.25);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(0.9);
+  }
+}
+
+/* HP (bottom-left, above dash) */
+#hp-wrap {
+  position: absolute;
+  left: 24px;
+  bottom: 64px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+#hp-bar {
+  width: 170px;
+  height: 12px;
+  border-radius: 6px;
+  background: rgba(10, 14, 22, 0.55);
+  overflow: hidden;
+}
+
+#hp-fill {
+  display: block;
+  height: 100%;
+  width: 100%;
+  border-radius: 6px;
+  background: #57d38c;
+  transition: width 0.12s ease, background 0.2s ease;
+}
+
+#hp-fill.low {
+  background: #ff4030;
+}
+
+#hp-num {
+  color: #eef2f7;
+  font-weight: 800;
+  font-size: 18px;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.7);
+}
+
+/* ammo (bottom-right) */
+#ammo-wrap {
+  position: absolute;
+  right: 24px;
+  bottom: 24px;
+  text-align: right;
+  color: #eef2f7;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.7);
+}
+
+#ammo-mag {
+  font-size: 34px;
+  font-weight: 900;
+}
+
+#ammo-mag.reloading {
+  color: #ffb02e;
+}
+
+#ammo-max {
+  font-size: 16px;
+  color: #9fb0c3;
+  margin-left: 6px;
+}
+
+#weapon-name {
+  font-size: 13px;
+  letter-spacing: 1px;
+  color: #cdd8e4;
+}
+
+#weapon-slots {
+  margin-top: 6px;
+  display: flex;
+  gap: 6px;
+  justify-content: flex-end;
+}
+
+#weapon-slots span {
+  min-width: 20px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: rgba(10, 14, 22, 0.5);
+  color: #8494a8;
+  font-size: 11px;
+  text-align: center;
+}
+
+#weapon-slots span.active {
+  background: #ff5a3c;
+  color: #fff;
+}
+
+/* kill feed (top-right) */
+#killfeed {
+  position: absolute;
+  top: 18px;
+  right: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: flex-end;
+}
+
+.feed-entry {
+  background: rgba(10, 14, 22, 0.6);
+  color: #eef2f7;
+  padding: 4px 10px;
+  border-radius: 4px;
+  font-size: 13px;
+  animation: feedfade 3s forwards;
+}
+
+.feed-entry b {
+  color: #ff5a3c;
+}
+
+@keyframes feedfade {
+  0%,
+  75% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
 }
 
 #dash-indicator {
@@ -156,11 +361,27 @@ body.touch .touch-help {
 }
 
 body.touch #dash-indicator {
-  left: auto;
-  right: 24px;
-  bottom: auto;
-  top: 18px;
+  left: 24px;
+  bottom: 24px;
   width: 110px;
+}
+
+body.touch #hp-wrap {
+  left: 24px;
+  bottom: 64px;
+}
+
+body.touch #ammo-wrap {
+  right: 20px;
+  bottom: auto;
+  top: 14px;
+}
+
+body.touch #killfeed {
+  top: 14px;
+  right: auto;
+  left: 20px;
+  align-items: flex-start;
 }
 
 body.touch .touch-zone {
@@ -241,6 +462,48 @@ body.touch .touch-btn:active {
   width: 64px;
   height: 64px;
   font-size: 11px;
+}
+
+#btn-fire {
+  right: 210px;
+  bottom: 52px;
+  width: 88px;
+  height: 88px;
+  font-size: 16px;
+  background: rgba(255, 90, 60, 0.35);
+}
+
+#btn-ads {
+  right: 126px;
+  bottom: 170px;
+  width: 56px;
+  height: 56px;
+  font-size: 12px;
+}
+
+#btn-reload {
+  right: 310px;
+  bottom: 30px;
+  width: 56px;
+  height: 56px;
+  font-size: 12px;
+}
+
+body.touch #touch-slots {
+  position: absolute;
+  left: 50%;
+  bottom: 14px;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 8px;
+}
+
+.slot-btn {
+  position: relative !important;
+  width: 40px;
+  height: 40px;
+  border-radius: 8px !important;
+  font-size: 14px;
 }
 
 #btn-pause {

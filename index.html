@@ -17,8 +17,22 @@
     <canvas id="game"></canvas>
 
     <div id="hud" class="hidden">
-      <div id="crosshair"></div>
+      <div id="crosshair"><i></i><i></i><i></i><i></i></div>
+      <div id="hitmarker"><i></i><i></i><i></i><i></i></div>
       <div id="dash-indicator"><span id="dash-fill"></span><label>대시 (Shift)</label></div>
+
+      <div id="hp-wrap">
+        <div id="hp-bar"><span id="hp-fill"></span></div>
+        <span id="hp-num">100</span>
+      </div>
+
+      <div id="ammo-wrap">
+        <div id="ammo-line"><span id="ammo-mag">30</span><span id="ammo-max">/ 30</span></div>
+        <div id="weapon-name">돌격소총</div>
+        <div id="weapon-slots"><span data-slot="1"></span><span data-slot="2"></span><span data-slot="3"></span><span data-slot="4"></span></div>
+      </div>
+
+      <div id="killfeed"></div>
 
       <!-- touch-only controls (shown via body.touch) -->
       <div id="touch-move-zone" class="touch-zone"></div>
@@ -27,6 +41,15 @@
       <button id="btn-jump" class="touch-btn">점프</button>
       <button id="btn-dash" class="touch-btn">대시</button>
       <button id="btn-slide" class="touch-btn">슬라이드</button>
+      <button id="btn-fire" class="touch-btn">발사</button>
+      <button id="btn-ads" class="touch-btn">조준</button>
+      <button id="btn-reload" class="touch-btn">장전</button>
+      <div id="touch-slots">
+        <button class="touch-btn slot-btn" data-key="Digit1">1</button>
+        <button class="touch-btn slot-btn" data-key="Digit2">2</button>
+        <button class="touch-btn slot-btn" data-key="Digit3">3</button>
+        <button class="touch-btn slot-btn" data-key="Digit4">4</button>
+      </div>
       <button id="btn-pause" class="touch-btn">❚❚</button>
     </div>
 
@@ -44,7 +67,8 @@
         <button id="play-btn">클릭하여 시작</button>
         <div class="controls">
           <span class="desktop-help"
-            ><b>WASD</b> 이동 · <b>Space</b> 점프 · <b>Shift</b> 대시 · <b>C</b> 슬라이드 · <b>마우스</b> 시점</span
+            ><b>WASD</b> 이동 · <b>Space</b> 점프 · <b>Shift</b> 대시 · <b>C</b> 슬라이드 · <b>클릭</b> 발사 ·
+            <b>우클릭</b> 조준 · <b>R</b> 장전 · <b>1~4</b> 무기 (같은 키 재입력 시 교체)</span
           >
           <span class="touch-help"
             ><b>왼쪽</b> 조이스틱 이동 · <b>오른쪽</b> 드래그 시점 · 버튼으로 점프/대시/슬라이드</span
