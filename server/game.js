@@ -51,6 +51,7 @@ const CLAIM_LIMIT = {
 const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
 const MAP_IDS = ['foundry', 'sandstorm', 'neon', 'frost', 'jungle']
 const DIFFICULTIES = ['easy', 'normal', 'hard']
+const RECONNECT_GRACE_MS = 20_000 // window to rejoin after a socket drop
 
 const rooms = new Map() // code -> Room
 
@@ -61,6 +62,11 @@ function makeCode() {
     if (!rooms.has(code)) return code
   }
   return null
+}
+
+/** Per-player secret used to reclaim a slot after a disconnect. */
+function makeToken() {
+  return Math.floor(Math.random() * 1e9).toString(36) + Math.floor(Math.random() * 1e9).toString(36)
 }
 
 const WORLD_LIMIT = 200
@@ -133,7 +139,7 @@ class Room {
 
   broadcast(msg, exceptConn = null) {
     for (const p of this.players) {
-      if (p.conn !== exceptConn) p.conn.send(msg)
+      if (p.conn && p.conn !== exceptConn) p.conn.send(msg)
     }
   }
 
@@ -147,7 +153,7 @@ class Room {
     else if (t1 < t0) team = 1
     else if (t0 < t1) team = 0
     else team = 0
-    const player = { id, conn, team, ready: false, nick: cleanNick(nick) }
+    const player = { id, conn, team, ready: false, nick: cleanNick(nick), token: makeToken(), connected: true, graceTimer: null }
     this.players.push(player)
     conn.room = this
     conn.playerId = id
@@ -175,6 +181,7 @@ class Room {
 
   sendLobby() {
     for (const p of this.players) {
+      if (!p.conn) continue
       p.conn.send({
         t: 'lobby',
         code: this.code,
@@ -183,7 +190,8 @@ class Room {
         fillBots: this.fillBots,
         hostId: this.hostId,
         you: p.id,
-        players: this.players.map((q) => ({ id: q.id, team: q.team, ready: q.ready, nick: q.nick })),
+        token: p.token,
+        players: this.players.map((q) => ({ id: q.id, team: q.team, ready: q.ready, nick: q.nick, gone: !q.connected })),
       })
     }
   }
@@ -217,19 +225,22 @@ class Room {
     for (const p of this.players) this.entities.set(p.id, { team: p.team, hp: MAX_HP, isBot: false })
     for (const b of this.bots) this.entities.set(b.id, { team: b.team, hp: MAX_HP, isBot: true })
 
-    for (const p of this.players) {
-      p.conn.send({
-        t: 'roster',
-        teamSize: this.teamSize,
-        mapId: this.mapId,
-        difficulty: this.difficulty,
-        hostId: this.hostId,
-        you: p.id,
-        players: this.players.map((q) => ({ id: q.id, team: q.team, nick: q.nick })),
-        bots: this.bots.map((b) => ({ id: b.id, team: b.team })),
-      })
-    }
+    for (const p of this.players) if (p.conn) p.conn.send(this.rosterMsg(p))
     this.startRound()
+  }
+
+  rosterMsg(p) {
+    return {
+      t: 'roster',
+      teamSize: this.teamSize,
+      mapId: this.mapId,
+      difficulty: this.difficulty,
+      hostId: this.hostId,
+      you: p.id,
+      token: p.token,
+      players: this.players.map((q) => ({ id: q.id, team: q.team, nick: q.nick })),
+      bots: this.bots.map((b) => ({ id: b.id, team: b.team })),
+    }
   }
 
   hpSnapshot() {
@@ -238,19 +249,21 @@ class Room {
     return out
   }
 
-  sendPhase(extra = {}) {
-    for (const p of this.players) {
-      p.conn.send({
-        t: 'round',
-        phase: this.state,
-        round: this.round,
-        scoreYou: this.score[p.team],
-        scoreEnemy: this.score[p.team ^ 1],
-        hps: this.hpSnapshot(),
-        ...('winner' in extra ? { youWon: extra.winner === p.team } : {}),
-        ...(extra.draw ? { draw: true } : {}),
-      })
+  phaseMsg(p, extra = {}) {
+    return {
+      t: 'round',
+      phase: this.state,
+      round: this.round,
+      scoreYou: this.score[p.team],
+      scoreEnemy: this.score[p.team ^ 1],
+      hps: this.hpSnapshot(),
+      ...('winner' in extra ? { youWon: extra.winner === p.team } : {}),
+      ...(extra.draw ? { draw: true } : {}),
     }
+  }
+
+  sendPhase(extra = {}) {
+    for (const p of this.players) if (p.conn) p.conn.send(this.phaseMsg(p, extra))
   }
 
   startRound() {
@@ -351,9 +364,64 @@ class Room {
     this.broadcast({ ...payload, id }, conn)
   }
 
+  /** Socket dropped: hold the slot open for a grace window so they can rejoin. */
+  onDisconnect(conn) {
+    const player = this.players.find((p) => p.conn === conn)
+    if (!player) return
+    player.connected = false
+    player.conn = null
+    conn.room = null
+    clearTimeout(player.graceTimer)
+    player.graceTimer = setTimeout(() => this.dropPlayer(player), RECONNECT_GRACE_MS)
+    if (this.state === 'waiting') this.sendLobby() // show them as (gone) meanwhile
+  }
+
+  /** Reclaim an open slot on the same token; resume from current state. */
+  reconnect(player, conn) {
+    clearTimeout(player.graceTimer)
+    player.graceTimer = null
+    player.connected = true
+    player.conn = conn
+    conn.room = this
+    conn.playerId = player.id
+    this.touch()
+    if (this.state === 'waiting') {
+      this.sendLobby()
+    } else {
+      // mid-match: rebuild their world and drop them into the current phase
+      conn.send(this.rosterMsg(player))
+      conn.send(this.phaseMsg(player))
+    }
+  }
+
+  /** Grace expired without a rejoin — remove the player for good. */
+  dropPlayer(player) {
+    if (player.connected) return // already rejoined
+    const wasHost = this.hostId === player.id
+    const idx = this.players.indexOf(player)
+    if (idx >= 0) this.players.splice(idx, 1)
+    const ent = this.entities.get(player.id)
+    if (ent) ent.hp = 0 // count them eliminated so a round can still resolve
+
+    if (!this.players.some((p) => p.connected)) return this.destroy('empty')
+
+    if (this.state === 'waiting') {
+      // players[0] shifted → host promotion is automatic via hostId
+      this.sendLobby()
+      this.tryStart()
+    } else if (wasHost) {
+      // bots are host-simulated; we can't hand that off mid-match (v1)
+      this.destroy('host-left')
+    } else {
+      this.broadcast({ t: 'hp', id: player.id, hp: 0 })
+      this.checkWipe()
+    }
+  }
+
   destroy(reason) {
     this.destroyed = true
     clearTimeout(this.timer)
+    for (const p of this.players) clearTimeout(p.graceTimer)
     this.broadcast({ t: 'roomClosed', reason })
     for (const p of this.players) {
       if (p.conn) p.conn.room = null
@@ -380,8 +448,8 @@ export function handleMessage(conn, msg) {
       if (!code) return conn.send({ t: 'error', reason: 'busy' })
       const newRoom = new Room(code, msg.teamSize, String(msg.mapId ?? 'foundry'), msg.fillBots, String(msg.difficulty ?? 'normal'))
       rooms.set(code, newRoom)
-      newRoom.addPlayer(conn, msg.nick)
-      conn.send({ t: 'created', code })
+      const creator = newRoom.addPlayer(conn, msg.nick)
+      conn.send({ t: 'created', code, token: creator.token })
       break
     }
     case 'join': {
@@ -392,6 +460,15 @@ export function handleMessage(conn, msg) {
       }
       target.addPlayer(conn, msg.nick)
       target.touch()
+      break
+    }
+    case 'rejoin': {
+      if (room) return
+      const target = rooms.get(String(msg.code ?? '').toUpperCase())
+      if (!target || target.destroyed) return conn.send({ t: 'error', reason: 'no-room' })
+      const player = target.players.find((p) => !p.connected && p.token === String(msg.token ?? ''))
+      if (!player) return conn.send({ t: 'error', reason: 'no-room' })
+      target.reconnect(player, conn)
       break
     }
     case 'ready': {
@@ -435,11 +512,11 @@ export function handleMessage(conn, msg) {
   }
 }
 
-/** Tear down the connection's room (v1: any departure ends the match). */
+/** Socket closed: hold the slot for a grace window so the player can rejoin. */
 export function handleClose(conn) {
   const room = conn.room
   if (!room) return
-  room.destroy('peer-left')
+  room.onDisconnect(conn)
 }
 
 let sweepTimer = null

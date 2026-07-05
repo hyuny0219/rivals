@@ -68,6 +68,8 @@ export interface OnlineCallbacks {
   onRoomList: (rooms: RoomSummary[]) => void
   onError: (reason: string) => void
   onDisconnect: (reason: string) => void
+  /** Fired when a dropped connection starts trying to rejoin. */
+  onReconnecting?: () => void
 }
 
 /** Default server URL. Local dev uses the standalone server on :8081; a
@@ -84,10 +86,14 @@ export class OnlineManager {
   phase: OnlinePhase = 'idle'
   code = ''
   nick = '플레이어'
+  token = '' // slot secret for reclaiming the room after a drop
   private ws: WebSocket | null = null
   private url = ''
   private connectGen = 0 // bumped by leave() to abort an in-flight retry loop
   private connecting: Promise<void> | null = null // shared in-flight connect
+  private intentionalClose = false // user left; don't auto-reconnect
+  private reconnecting = false
+  private pendingRejoin = false // a rejoin was sent, awaiting resume/rejection
 
   constructor(private cb: OnlineCallbacks) {}
 
@@ -135,12 +141,49 @@ export class OnlineManager {
       ws.onclose = () => {
         if (this.ws !== ws) return
         this.ws = null
-        if (this.phase !== 'idle') {
+        if (this.phase === 'idle') return
+        if (this.intentionalClose) {
           this.phase = 'idle'
-          this.cb.onDisconnect('connection-lost')
+          return
         }
+        // unexpected drop mid-session → try to reclaim the slot within grace
+        void this.reconnectLoop()
       }
     })
+  }
+
+  /** Reconnect after an unexpected drop and reclaim the slot with our token. */
+  private async reconnectLoop() {
+    if (this.reconnecting) return
+    if (!this.code || !this.token) return this.finishDisconnect('connection-lost')
+    this.reconnecting = true
+    this.cb.onReconnecting?.()
+    for (let i = 0; i < 6; i++) {
+      if (this.intentionalClose) {
+        this.reconnecting = false
+        return
+      }
+      try {
+        await this.connect(this.url)
+        this.pendingRejoin = true
+        this.send({ t: 'rejoin', code: this.code, token: this.token })
+        this.reconnecting = false
+        return // resume (roster/lobby) or rejection (error/roomClosed) arrives via handle()
+      } catch {
+        await new Promise((r) => setTimeout(r, 3000))
+      }
+    }
+    this.reconnecting = false
+    this.finishDisconnect('reconnect-failed')
+  }
+
+  private finishDisconnect(reason: string) {
+    this.pendingRejoin = false
+    this.phase = 'idle'
+    const ws = this.ws
+    this.ws = null
+    ws?.close()
+    this.cb.onDisconnect(reason)
   }
 
   /** Open (or reuse) a lobby connection for browsing rooms. */
@@ -202,6 +245,7 @@ export class OnlineManager {
     onWaking?: (attempt: number, max: number) => void,
   ) {
     this.url = url
+    this.intentionalClose = false
     await this.ensure(onWaking)
     this.phase = 'waiting'
     this.send({ t: 'create', teamSize, mapId, nick: this.nick, fillBots, difficulty })
@@ -209,6 +253,7 @@ export class OnlineManager {
 
   async join(url: string, code: string, onWaking?: (attempt: number, max: number) => void) {
     this.url = url
+    this.intentionalClose = false
     await this.ensure(onWaking)
     this.phase = 'waiting'
     this.send({ t: 'join', code, nick: this.nick })
@@ -225,11 +270,20 @@ export class OnlineManager {
 
   leave() {
     this.phase = 'idle'
+    this.intentionalClose = true // user-initiated: don't auto-reconnect
+    this.reconnecting = false
+    this.pendingRejoin = false
+    this.token = ''
     this.connectGen++ // abort any in-flight connect/retry loop
     this.connecting = null // let the next ensure() start a fresh connect
     const ws = this.ws
     this.ws = null
     ws?.close()
+  }
+
+  /** Test helper: drop the socket as if the network died (not user-initiated). */
+  simulateDrop() {
+    this.ws?.close()
   }
 
   /** Own state, or a host-simulated bot's state when `asId` is a bot id. */
@@ -266,13 +320,18 @@ export class OnlineManager {
         break
       case 'created':
         this.code = String(msg.code)
+        if (msg.token) this.token = String(msg.token)
         this.cb.onCreated(this.code)
         break
       case 'lobby':
         this.code = String(msg.code)
+        if (msg.token) this.token = String(msg.token)
+        this.pendingRejoin = false // a resume arrived
         this.cb.onLobby(msg as unknown as LobbyInfo)
         break
       case 'roster':
+        if (msg.token) this.token = String(msg.token)
+        this.pendingRejoin = false // a resume arrived
         this.cb.onRoster(msg as unknown as RosterInfo)
         break
       case 'round': {
@@ -305,6 +364,11 @@ export class OnlineManager {
         this.ws?.close()
         break
       case 'error':
+        // a rejection to our rejoin means the slot/room is gone → end cleanly
+        if (this.pendingRejoin) {
+          this.finishDisconnect('reconnect-failed')
+          break
+        }
         this.cb.onError(String(msg.reason))
         this.leave()
         break

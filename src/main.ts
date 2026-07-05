@@ -550,6 +550,23 @@ function setupRoster(info: RosterInfo) {
       idByEntity.set(r, b.id)
     }
   }
+
+  // position everyone at their team spawns now, so a mid-match reconnect
+  // (roster re-sent) drops them back in place with entities live rather than at
+  // the origin / frozen; the round countdown re-spawns everyone on a normal
+  // start, so this is redundant there but harmless
+  const mySp = map.teamSpawns[onlineTeam]?.[mySpawnIdx]
+  if (mySp) player.spawn(mySp.position, mySp.yaw)
+  for (const e of onlineEntities.values()) {
+    const sp = map.teamSpawns[e.team]?.[e.spawnIdx]
+    if (!sp) continue
+    if (e.remote) e.remote.activate(sp.position, sp.yaw)
+    if (e.bot) {
+      e.bot.setDifficulty(onlineDifficulty)
+      e.bot.reset(sp.position.clone(), sp.yaw)
+      e.bot.serverControlledHp = true
+    }
+  }
 }
 
 function teardownRoster() {
@@ -731,8 +748,14 @@ const online = new OnlineManager({
   onError: (reason) => {
     setOnlineStatus(reason === 'no-room' ? '방을 찾을 수 없습니다 (코드/정원 확인)' : '서버 오류가 발생했습니다')
   },
+  onReconnecting: () => {
+    if (playing) showBanner('연결 끊김 · 재접속 중…', '', 6)
+    else setOnlineStatus('연결이 끊겼습니다 · 재접속 중…')
+  },
   onDisconnect: (reason) => {
     if (reason === 'peer-left') addFeedEntry('플레이어가 나가 방이 종료되었습니다')
+    else if (reason === 'host-left') addFeedEntry('방장이 나가 방이 종료되었습니다')
+    else if (reason === 'reconnect-failed') addFeedEntry('재접속에 실패했습니다')
     endOnlineCleanup()
   },
 })
@@ -1580,6 +1603,10 @@ requestAnimationFrame(frame)
   onlineClaim(damage: number) {
     const entry = firstEnemyEntry()
     if (entry) online.sendHit('sniper', damage, entry[0])
+  },
+  /** Test helper: simulate a network drop (triggers auto-reconnect). */
+  dropSocket() {
+    online.simulateDrop()
   },
   damageBot(amount: number, index = 0) {
     enemyBots[index]?.takeDamage(amount, false)
