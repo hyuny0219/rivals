@@ -520,6 +520,86 @@ body {
   color: #fff;
 }
 
+/* in-match loadout pick (round 1 countdown) */
+#loadout-panel {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -54%);
+  background: rgba(10, 14, 22, 0.82);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 12px;
+  padding: 18px 26px 14px;
+  text-align: center;
+  color: #eef2f7;
+  pointer-events: auto;
+}
+
+#loadout-panel.hidden {
+  display: none;
+}
+
+#loadout-panel h3 {
+  font-size: 20px;
+  font-weight: 800;
+  margin-bottom: 12px;
+}
+
+.lp-group {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: center;
+  margin-top: 10px;
+}
+
+.lp-label {
+  color: #8494a8;
+  font-size: 13px;
+  min-width: 56px;
+  text-align: right;
+  margin-right: 4px;
+}
+
+.lp-btn {
+  padding: 10px 16px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #cdd8e4;
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.lp-btn i {
+  font-style: normal;
+  display: inline-block;
+  margin-right: 7px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.12);
+  font-size: 11px;
+  color: #9fb0c3;
+}
+
+.lp-btn.active {
+  background: #ff5a3c;
+  border-color: #ff5a3c;
+  color: #fff;
+}
+
+.lp-btn.active i {
+  background: rgba(0, 0, 0, 0.25);
+  color: #fff;
+}
+
+#loadout-hint {
+  margin-top: 12px;
+  font-size: 12px;
+  color: #8494a8;
+}
+
 /* duel score + banner */
 #score-wrap {
   position: absolute;

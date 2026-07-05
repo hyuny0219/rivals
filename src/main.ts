@@ -50,6 +50,7 @@ const onlineStatus = document.querySelector<HTMLDivElement>('#online-status')!
 const onlineStatusText = document.querySelector<HTMLSpanElement>('#online-status-text')!
 const onlineGoBtn = document.querySelector<HTMLButtonElement>('#online-go-btn')!
 const onlineCancelBtn = document.querySelector<HTMLButtonElement>('#online-cancel-btn')!
+const loadoutPanel = document.querySelector<HTMLDivElement>('#loadout-panel')!
 
 const touchMode = isTouchDevice()
 if (touchMode) document.body.classList.add('touch')
@@ -265,12 +266,13 @@ function showBanner(text: string, sub = '', seconds = 1) {
 }
 
 const duel = new DuelManager({
-  onRoundStart: () => {
+  onRoundStart: (round) => {
     respawn()
     weapons.setLoadout(selectedPrimary, selectedSecondary)
     bot.setDifficulty(selectedDifficulty)
     bot.reset(map.spawns[1].position.clone(), map.spawns[1].yaw)
     projectiles.clear()
+    if (round === 1) showLoadoutPanel(5) // pick window before the 3-2-1
   },
   onBanner: (text, sub, seconds) => {
     showBanner(text, sub, seconds)
@@ -287,6 +289,7 @@ const duel = new DuelManager({
 })
 
 function endDuelCleanup() {
+  hideLoadoutPanel()
   bot.alive = false
   bot.group.visible = false
   weapons.allowCycling = true
@@ -352,10 +355,12 @@ function handleOnlineRound(info: RoundInfo) {
     remote.activate(map.spawns[onlineSide ^ 1].position, map.spawns[onlineSide ^ 1].yaw)
     scoreWrap.classList.remove('hidden')
     botHpWrap.classList.remove('hidden')
-    // local countdown display; the server flips to combat after 3s
-    showBanner('3', `라운드 ${info.round}`, 0.95)
-    audio.countdownBeep()
+    // round 1 opens with a 5s loadout window (server countdown is 8s);
+    // later rounds go straight into the local 3-2-1 display
+    const pickOffset = info.round === 1 ? 5000 : 0
+    if (info.round === 1) showLoadoutPanel(5)
     for (const [delay, label] of [
+      [0, '3'],
       [1000, '2'],
       [2000, '1'],
     ] as const) {
@@ -363,10 +368,11 @@ function handleOnlineRound(info: RoundInfo) {
         window.setTimeout(() => {
           showBanner(label, `라운드 ${info.round}`, 0.95)
           audio.countdownBeep()
-        }, delay),
+        }, pickOffset + delay),
       )
     }
   } else if (info.phase === 'combat') {
+    hideLoadoutPanel()
     showBanner('GO!', '', 0.7)
     audio.go()
   } else if (info.phase === 'roundEnd') {
@@ -382,6 +388,7 @@ function handleOnlineRound(info: RoundInfo) {
 }
 
 function endOnlineCleanup() {
+  hideLoadoutPanel()
   clearOnlineTimers()
   online.leave()
   remote.deactivate()
@@ -528,10 +535,10 @@ function updateHud() {
   crosshair.style.setProperty('--gap', `${weapons.crosshairGap.toFixed(1)}px`)
   crosshair.style.display = weapons.aiming && w.id === 'sniper' ? 'none' : ''
 
-  // the zoom button only makes sense for ADS-capable weapons
-  const hasAds = w.adsFov > 0
-  btnAds.classList.toggle('hidden', !hasAds)
-  if (!hasAds && adsToggled) setAdsToggle(false)
+  // the zoom button is sniper-only (AR keeps right-click ADS on desktop)
+  const hasZoom = w.id === 'sniper'
+  btnAds.classList.toggle('hidden', !hasZoom)
+  if (!hasZoom && adsToggled) setAdsToggle(false)
 
   if (duel.active) {
     scorePlayer.textContent = String(duel.playerScore)
@@ -715,8 +722,57 @@ function wireToggleGroup(selector: string, onPick: (id: string) => void) {
   }
 }
 wireToggleGroup('.diff-btn', (id) => (selectedDifficulty = id as Difficulty))
-wireToggleGroup('.primary-btn', (id) => (selectedPrimary = id))
-wireToggleGroup('.secondary-btn', (id) => (selectedSecondary = id))
+wireToggleGroup('.primary-btn', (id) => {
+  selectedPrimary = id
+  applyLoadoutPick()
+})
+wireToggleGroup('.secondary-btn', (id) => {
+  selectedSecondary = id
+  applyLoadoutPick()
+})
+
+// ---------- in-match loadout pick (round 1 countdown) ----------
+let loadoutHideTimer = 0
+
+function applyLoadoutPick() {
+  // picks apply instantly while the selection window is open
+  if (!loadoutPanel.classList.contains('hidden')) {
+    weapons.setLoadout(selectedPrimary, selectedSecondary)
+  }
+}
+
+function showLoadoutPanel(seconds: number) {
+  loadoutPanel.classList.remove('hidden')
+  window.clearTimeout(loadoutHideTimer)
+  loadoutHideTimer = window.setTimeout(hideLoadoutPanel, seconds * 1000)
+}
+
+function hideLoadoutPanel() {
+  window.clearTimeout(loadoutHideTimer)
+  loadoutPanel.classList.add('hidden')
+}
+
+// number keys 1-5 pick weapons while the panel is open (pointer is locked)
+const LOADOUT_KEYS: Record<string, { kind: 'p' | 's'; id: string }> = {
+  Digit1: { kind: 'p', id: 'ar' },
+  Digit2: { kind: 'p', id: 'shotgun' },
+  Digit3: { kind: 'p', id: 'sniper' },
+  Digit4: { kind: 's', id: 'pistol' },
+  Digit5: { kind: 's', id: 'uzi' },
+}
+window.addEventListener('keydown', (e) => {
+  if (loadoutPanel.classList.contains('hidden')) return
+  const pick = LOADOUT_KEYS[e.code]
+  if (!pick) return
+  const selector = pick.kind === 'p' ? '.primary-btn' : '.secondary-btn'
+  for (const btn of document.querySelectorAll<HTMLButtonElement>(selector)) {
+    btn.classList.toggle('active', btn.dataset.id === pick.id)
+  }
+  if (pick.kind === 'p') selectedPrimary = pick.id
+  else selectedSecondary = pick.id
+  applyLoadoutPick()
+  audio.weaponSwitch?.()
+})
 
 document.addEventListener('pointerlockchange', () => {
   if (touchMode) return
