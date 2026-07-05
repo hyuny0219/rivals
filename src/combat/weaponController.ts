@@ -333,8 +333,8 @@ export class WeaponController {
     this.viewmodel.position.set(0.32, -0.28, -0.5)
   }
 
-  private updateViewmodel(dt: number) {
-    this.recoilZ = Math.max(0, this.recoilZ - dt * 0.9)
+  /** Purely visual decay that must keep running even when the sim freezes. */
+  tickVisual(dt: number) {
     if (this.flashLight.intensity > 0) {
       this.flashLight.intensity = Math.max(0, this.flashLight.intensity - dt * 160)
       if (this.flashLight.intensity < 1) {
@@ -342,6 +342,10 @@ export class WeaponController {
         this.flashMesh.visible = false
       }
     }
+  }
+
+  private updateViewmodel(dt: number) {
+    this.recoilZ = Math.max(0, this.recoilZ - dt * 0.9)
     const speed = Math.hypot(this.player.velocity.x, this.player.velocity.z)
     if (this.player.grounded && speed > 0.5) this.bobPhase += dt * Math.min(speed, 10) * 1.6
     const bobX = Math.sin(this.bobPhase) * 0.008

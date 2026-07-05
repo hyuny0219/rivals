@@ -19,6 +19,8 @@ export class Effects {
   constructor(
     private scene: THREE.Scene,
     private audio?: AudioEngine,
+    /** Listener position for distance attenuation (the camera). */
+    private listener?: () => THREE.Vector3,
   ) {}
 
   private add(object: THREE.Object3D, ttl: number, update?: Transient['update']) {
@@ -41,7 +43,8 @@ export class Effects {
   }
 
   explosion(point: THREE.Vector3, radius: number) {
-    this.audio?.explosion()
+    const dist = this.listener ? point.distanceTo(this.listener()) : 0
+    this.audio?.explosion(Math.max(0.15, 1 - dist / 45))
     const mat = new THREE.MeshBasicMaterial({ color: 0xff8b3c, transparent: true, opacity: 0.85 })
     const m = new THREE.Mesh(this.boomGeo, mat)
     m.position.copy(point)

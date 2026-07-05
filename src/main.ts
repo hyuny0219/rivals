@@ -153,7 +153,7 @@ respawn()
 
 // ---------- audio / combat ----------
 const audio = new AudioEngine()
-const effects = new Effects(scene, audio)
+const effects = new Effects(scene, audio, () => camera.position)
 
 const dummies: TargetDummy[] = []
 // keep clear of the stair colliders (x ±8.45..12.95, z ±13..19) and crates
@@ -180,7 +180,10 @@ const projectiles = new ProjectileManager(
   effects,
   () => [...dummies, playerTarget, bot],
   (target, _damage, killed) => {
-    if (target !== playerTarget) showHitmarker(killed)
+    if (target !== playerTarget) {
+      showHitmarker(killed)
+      audio.hit(killed)
+    }
   },
 )
 
@@ -376,9 +379,7 @@ const settings = loadSettings()
 function applySettings() {
   player.sensitivity = 0.0023 * settings.sensitivity
   audio.setVolume(settings.volume)
-  camera.fov = settings.fov
-  camera.updateProjectionMatrix()
-  weapons.setBaseFov(settings.fov)
+  weapons.setBaseFov(settings.fov) // respects an active ADS zoom
 }
 
 function wireSettingSlider(
@@ -488,9 +489,12 @@ let prevSliding = false
 let prevDashCharge = 1
 let footstepDist = 0
 
+let prevVy = 0
+
 function updateMovementSounds(dt: number) {
   const speed = Math.hypot(player.velocity.x, player.velocity.z)
-  if (!prevGrounded && player.grounded) audio.land()
+  // require a real fall so a respawn's grounded=false reset doesn't thud
+  if (!prevGrounded && player.grounded && prevVy < -3) audio.land()
   if (prevGrounded && !player.grounded && player.velocity.y > 2) audio.jump()
   if (!prevSliding && player.sliding) audio.slide()
   if (player.dashCharge < prevDashCharge - 0.4) audio.dash()
@@ -506,6 +510,7 @@ function updateMovementSounds(dt: number) {
   prevGrounded = player.grounded
   prevSliding = player.sliding
   prevDashCharge = player.dashCharge
+  prevVy = player.velocity.y
 }
 
 function frame(now: number) {
@@ -543,7 +548,10 @@ function frame(now: number) {
     // (high-refresh displays) so taps are never dropped
     if (steps > 0) input.clearPressed()
 
-    if (steps > 0) updateMovementSounds(dt)
+    // movement sounds advance on simulated time (steps), not wall time, and
+    // stay silent while the duel freezes the simulation
+    if (steps > 0 && !(duel.active && duel.frozen)) updateMovementSounds(steps * PHYSICS_STEP)
+    weapons.tickVisual(dt) // muzzle flash decays even while frozen
     for (const d of dummies) d.update(dt)
     effects.update(dt)
     updateHud()
