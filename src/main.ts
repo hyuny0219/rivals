@@ -43,6 +43,9 @@ const bannerSub = document.querySelector<HTMLDivElement>('#banner-sub')!
 const botHpWrap = document.querySelector<HTMLDivElement>('#bot-hp-wrap')!
 const botHpFill = document.querySelector<HTMLSpanElement>('#bot-hp-fill')!
 const vignette = document.querySelector<HTMLDivElement>('#vignette')!
+const aliveRow = document.querySelector<HTMLDivElement>('#alive-row')!
+const aliveAllies = document.querySelector<HTMLSpanElement>('#alive-allies')!
+const aliveEnemies = document.querySelector<HTMLSpanElement>('#alive-enemies')!
 const onlineCreateBtn = document.querySelector<HTMLButtonElement>('#online-create-btn')!
 const onlineJoinBtn = document.querySelector<HTMLButtonElement>('#online-join-btn')!
 const onlineCodeInput = document.querySelector<HTMLInputElement>('#online-code')!
@@ -104,13 +107,18 @@ interface PlayerTarget extends Damageable {
   hp: number
   lastDamageAt: number
   readonly position: THREE.Vector3
+  readonly team: number
 }
 const playerTarget: PlayerTarget = {
   center: new THREE.Vector3(),
   get position() {
     return player.position
   },
-  alive: true,
+  get alive() {
+    // dead players are not targetable/hittable; outside matches hp resets
+    return playerTarget.hp > 0
+  },
+  team: 0,
   hp: MAX_HP,
   lastDamageAt: -Infinity,
   takeDamage(amount: number): boolean {
@@ -119,15 +127,19 @@ const playerTarget: PlayerTarget = {
       if (online.phase === 'combat') online.sendHit('grenade', amount, true)
       return false
     }
-    if (duel.active && duel.frozen) return false // no damage during countdown/round end
+    if (duel.active && (duel.frozen || playerTarget.hp <= 0)) return false
     playerTarget.hp = Math.max(0, playerTarget.hp - amount)
     playerTarget.lastDamageAt = elapsed
     audio.hurt()
     damageFlash = Math.min(1, damageFlash + amount / 50)
     if (playerTarget.hp <= 0) {
       if (duel.active) {
-        addFeedEntry('<b>BOT</b> YOU 처치')
-        duel.playerDied()
+        addFeedEntry('<b>YOU</b> 사망')
+        // the round continues while teammates are alive; the wipe check
+        // in the game loop decides the round
+        if (teamSize > 1 && allyBots.some((b) => b.alive)) {
+          showBanner('사망', '아군의 승리를 기다리는 중…', 2.5)
+        }
       } else {
         addFeedEntry('<b>YOU</b> 자폭했습니다')
         respawn()
@@ -195,7 +207,7 @@ const projectiles = new ProjectileManager(
   scene,
   physics,
   effects,
-  () => [...dummies, playerTarget, bot],
+  () => [...dummies, playerTarget, ...allyBots, ...enemyBots, remote],
   (target, damage, killed) => {
     if (target !== playerTarget) {
       showHitmarker(killed)
@@ -230,27 +242,45 @@ weapons.onGrenadeThrown = (origin, dir) => {
   }
 }
 
-// ---------- 1v1 duel ----------
-const bot = new Bot(
-  physics,
-  effects,
-  playerTarget,
-  () => {
-    /* bot hit the player — HP bar already reflects it */
-  },
-  () => {
-    addFeedEntry('<b>YOU</b> BOT 처치')
-    duel.botDied()
-  },
-  () => {
-    // bot gunshot, attenuated by distance to the listener
-    const dist = player.position.distanceTo(bot.controller.position)
-    audio.shot('ar', Math.max(0.1, 0.7 * (1 - dist / 70)))
-  },
+// ---------- bot duel / team battles ----------
+let teamSize = 1 // 1v1 .. 4v4; empty human slots are bots (local mode: all bots)
+const ALLY_COLOR = 0x3f6fc9
+const ENEMY_COLOR = 0xc94f4f
+
+function makeBot(name: string, team: number, color: number, seed: number, getEnemies: () => import('./entities/bot').BotTarget[]): Bot {
+  const b: Bot = new Bot(
+    physics,
+    effects,
+    { name, team, color, seed },
+    getEnemies,
+    () => {
+      /* target HP HUD reflects damage already */
+    },
+    (dead) => addFeedEntry(`<b>${dead.name}</b> 사망`),
+    () => {
+      // gunshot attenuated by distance to the listener
+      const dist = player.position.distanceTo(b.controller.position)
+      audio.shot('ar', Math.max(0.1, 0.7 * (1 - dist / 70)))
+    },
+  )
+  scene.add(b.group)
+  b.deactivate()
+  return b
+}
+
+const allyBots: Bot[] = [0, 1, 2].map((i) =>
+  makeBot(`아군 ${i + 1}`, 0, ALLY_COLOR, 0xa110 + i, () => enemyBots),
 )
-scene.add(bot.group)
-bot.alive = false
-bot.group.visible = false
+const enemyBots: Bot[] = [0, 1, 2, 3].map((i) =>
+  makeBot(`적 ${i + 1}`, 1, ENEMY_COLOR, 0xe4e0 + i, () => [playerTarget, ...allyBots]),
+)
+
+function aliveCounts(): { allies: number; enemies: number } {
+  return {
+    allies: (playerTarget.alive ? 1 : 0) + allyBots.filter((b) => b.alive).length,
+    enemies: enemyBots.filter((b) => b.alive).length,
+  }
+}
 
 let selectedDifficulty: Difficulty = 'normal'
 let selectedPrimary = 'ar'
@@ -269,8 +299,25 @@ const duel = new DuelManager({
   onRoundStart: (round) => {
     respawn()
     weapons.setLoadout(selectedPrimary, selectedSecondary)
-    bot.setDifficulty(selectedDifficulty)
-    bot.reset(map.spawns[1].position.clone(), map.spawns[1].yaw)
+    // player + (teamSize-1) ally bots vs teamSize enemy bots
+    for (let i = 0; i < allyBots.length; i++) {
+      if (i < teamSize - 1) {
+        allyBots[i].setDifficulty(selectedDifficulty)
+        const sp = map.teamSpawns[0][i + 1]
+        allyBots[i].reset(sp.position.clone(), sp.yaw)
+      } else {
+        allyBots[i].deactivate()
+      }
+    }
+    for (let i = 0; i < enemyBots.length; i++) {
+      if (i < teamSize) {
+        enemyBots[i].setDifficulty(selectedDifficulty)
+        const sp = map.teamSpawns[1][i]
+        enemyBots[i].reset(sp.position.clone(), sp.yaw)
+      } else {
+        enemyBots[i].deactivate()
+      }
+    }
     projectiles.clear()
     if (round === 1) showLoadoutPanel(10) // pick window before the 3-2-1
   },
@@ -290,8 +337,9 @@ const duel = new DuelManager({
 
 function endDuelCleanup() {
   hideLoadoutPanel()
-  bot.alive = false
-  bot.group.visible = false
+  for (const b of allyBots) b.deactivate()
+  for (const b of enemyBots) b.deactivate()
+  aliveRow.classList.add('hidden')
   weapons.allowCycling = true
   for (const d of dummies) d.setEnabled(true)
   projectiles.clear()
@@ -543,7 +591,17 @@ function updateHud() {
   if (duel.active) {
     scorePlayer.textContent = String(duel.playerScore)
     scoreBot.textContent = String(duel.botScore)
-    botHpFill.style.width = `${Math.max(0, bot.hp)}%`
+    if (teamSize === 1) {
+      botHpWrap.classList.remove('hidden')
+      aliveRow.classList.add('hidden')
+      botHpFill.style.width = `${Math.max(0, enemyBots[0].hp)}%`
+    } else {
+      botHpWrap.classList.add('hidden')
+      aliveRow.classList.remove('hidden')
+      const { allies, enemies } = aliveCounts()
+      aliveAllies.textContent = '●'.repeat(allies) + '○'.repeat(Math.max(0, teamSize - allies))
+      aliveEnemies.textContent = '●'.repeat(enemies) + '○'.repeat(Math.max(0, teamSize - enemies))
+    }
   } else if (online.active) {
     scorePlayer.textContent = String(onlineScoreYou)
     scoreBot.textContent = String(onlineScoreEnemy)
@@ -722,6 +780,7 @@ function wireToggleGroup(selector: string, onPick: (id: string) => void) {
   }
 }
 wireToggleGroup('.diff-btn', (id) => (selectedDifficulty = id as Difficulty))
+wireToggleGroup('.size-btn', (id) => (teamSize = Math.max(1, Math.min(4, Number(id) || 1))))
 wireToggleGroup('.primary-btn', (id) => {
   selectedPrimary = id
   applyLoadoutPick()
@@ -876,12 +935,25 @@ function frame(now: number) {
       duel.update(PHYSICS_STEP)
       const frozen = (duel.active && duel.frozen) || (online.active && online.frozen)
       if (!frozen) {
-        player.update(PHYSICS_STEP, input)
-        syncPlayerCenter() // explosions this step must see the current position
-        syncPlayerHitboxes()
-        weapons.update(PHYSICS_STEP, input)
+        // a dead player spectates until the team round resolves
+        const playerDead = duel.active && playerTarget.hp <= 0
+        if (!playerDead) {
+          player.update(PHYSICS_STEP, input)
+          syncPlayerCenter() // explosions this step must see the current position
+          syncPlayerHitboxes()
+          weapons.update(PHYSICS_STEP, input)
+        }
         projectiles.update(PHYSICS_STEP)
-        if (duel.active) bot.update(PHYSICS_STEP)
+        if (duel.active) {
+          for (const b of allyBots) b.update(PHYSICS_STEP)
+          for (const b of enemyBots) b.update(PHYSICS_STEP)
+          // team elimination decides the round
+          if (duel.state === 'combat') {
+            const { allies, enemies } = aliveCounts()
+            if (enemies === 0) duel.roundWon(true)
+            else if (allies === 0) duel.roundWon(false)
+          }
+        }
         // out-of-combat regen (practice only — duel rounds reset HP instead,
         // and regen would reward stalling behind cover)
         if (!duel.active && !online.active && playerTarget.hp < MAX_HP && elapsed - playerTarget.lastDamageAt > HP_REGEN_DELAY) {
@@ -930,11 +1002,11 @@ function frame(now: number) {
   // safety net: fell out of the map somehow
   if (player.position.y < -20) {
     if (duel.active) {
-      // falling out during a duel loses the round; no free heal
+      // falling out during a duel counts as dying; no free heal
       player.spawn(map.spawns[0].position, map.spawns[0].yaw)
-      if (duel.state === 'combat') {
+      if (duel.state === 'combat' && playerTarget.hp > 0) {
+        playerTarget.hp = 0
         addFeedEntry('<b>YOU</b> 추락')
-        duel.playerDied()
       }
     } else {
       respawn()
@@ -982,15 +1054,19 @@ requestAnimationFrame(frame)
     return dummies.map((d) => ({ name: d.name, hp: d.hp, alive: d.alive }))
   },
   get duel() {
+    const counts = aliveCounts()
     return {
       state: duel.state,
       playerScore: duel.playerScore,
       botScore: duel.botScore,
       round: duel.round,
-      botHp: bot.hp,
-      botAlive: bot.alive,
-      botX: bot.controller.position.x,
-      botZ: bot.controller.position.z,
+      teamSize,
+      aliveAllies: counts.allies,
+      aliveEnemies: counts.enemies,
+      botHp: enemyBots[0].hp,
+      botAlive: enemyBots[0].alive,
+      botX: enemyBots[0].controller.position.x,
+      botZ: enemyBots[0].controller.position.z,
     }
   },
   get online() {
@@ -1020,14 +1096,18 @@ requestAnimationFrame(frame)
   onlineClaim(damage: number) {
     online.sendHit('sniper', damage)
   },
-  damageBot(amount: number) {
-    bot.takeDamage(amount, false)
+  damageBot(amount: number, index = 0) {
+    enemyBots[index]?.takeDamage(amount, false)
+  },
+  damageAllBots(amount: number) {
+    for (const b of enemyBots) b.takeDamage(amount, false)
   },
   damagePlayer(amount: number) {
     playerTarget.takeDamage(amount, false)
   },
-  startDuel(difficulty: string) {
+  startDuel(difficulty: string, size = 1) {
     selectedDifficulty = difficulty as Difficulty
+    teamSize = Math.max(1, Math.min(4, size))
     pendingDuel = true
     if (playing) {
       pendingDuel = false

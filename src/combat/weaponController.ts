@@ -1,6 +1,6 @@
 import * as THREE from 'three'
 import { Input } from '../core/input'
-import { Damageable, PhysicsWorld } from '../world/physics'
+import { Damageable, PhysicsWorld, isFriendly } from '../world/physics'
 import { PlayerController } from '../player/controller'
 import { WEAPONS, SLOT_WEAPONS, SLOT_ORDER, WeaponDef, WeaponSlot } from './weapons'
 import { Effects } from './effects'
@@ -218,7 +218,7 @@ export class WeaponController {
     this.mag.set('grenade', count - 1)
     this.quickThrowCooldown = 60 / def.rpm
     this.camera.getWorldDirection(this.vDir)
-    this.projectiles.throwGrenade(this.camera.position, this.vDir, def.range, def.damage)
+    this.projectiles.throwGrenade(this.camera.position, this.vDir, def.range, def.damage, this.self)
     this.audio?.throwGrenade()
     this.onGrenadeThrown?.(this.camera.position, this.vDir)
     this.player.punch(def.kick, 0)
@@ -249,13 +249,13 @@ export class WeaponController {
       if (count <= 0) return
       this.mag.set(w.id, count - 1)
       this.camera.getWorldDirection(this.vDir)
-      this.projectiles.throwGrenade(this.camera.position, this.vDir, w.range, w.damage)
+      this.projectiles.throwGrenade(this.camera.position, this.vDir, w.range, w.damage, this.self)
       this.audio?.throwGrenade()
       this.onGrenadeThrown?.(this.camera.position, this.vDir)
     } else if (w.kind === 'melee') {
       this.camera.getWorldDirection(this.vDir)
       const hit = this.world.raycast(this.camera.position, this.vDir, w.range, this.self)
-      if (hit?.hitbox) {
+      if (hit?.hitbox && !isFriendly(this.self.team, hit.hitbox.entity)) {
         const killed = hit.hitbox.entity.takeDamage(w.damage, false)
         this.onHit({ target: hit.hitbox.entity, isHead: false, killed, damage: w.damage })
       }
@@ -293,7 +293,7 @@ export class WeaponController {
     this.effects.tracer(this.vMuzzle, end)
     if (!hit) return
     this.effects.impact(hit.point)
-    if (hit.hitbox) {
+    if (hit.hitbox && !isFriendly(this.self.team, hit.hitbox.entity)) {
       const isHead = hit.hitbox.part === 'head'
       const damage = Math.round(w.damage * (isHead ? w.headshotMult : 1))
       const killed = hit.hitbox.entity.takeDamage(damage, isHead)

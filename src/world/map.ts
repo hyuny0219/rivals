@@ -8,7 +8,10 @@ export interface SpawnPoint {
 
 export interface GameMap {
   group: THREE.Group
+  /** One spawn per side — kept for 1v1/online flows. */
   spawns: SpawnPoint[]
+  /** Up to 4 spawns per team for team battles (index 0 = team side -x). */
+  teamSpawns: [SpawnPoint[], SpawnPoint[]]
 }
 
 const PALETTE = {
@@ -135,5 +138,12 @@ export function buildMap(world: PhysicsWorld): GameMap {
     { position: new THREE.Vector3(W / 2 - 3, 0.1, 0), yaw: Math.PI / 2 },
   ]
 
-  return { group, spawns }
+  // team rows near each end wall, clear of crates/stairs
+  const spawnZs = [0, 5, -5, 10]
+  const teamSpawns: [SpawnPoint[], SpawnPoint[]] = [
+    spawnZs.map((z) => ({ position: new THREE.Vector3(-W / 2 + 3, 0.1, z), yaw: -Math.PI / 2 })),
+    spawnZs.map((z) => ({ position: new THREE.Vector3(W / 2 - 3, 0.1, z), yaw: Math.PI / 2 })),
+  ]
+
+  return { group, spawns, teamSpawns }
 }

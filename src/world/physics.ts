@@ -5,8 +5,15 @@ export interface Damageable {
   /** World-space center used for explosion distance checks. */
   readonly center: THREE.Vector3
   readonly alive: boolean
+  /** Team id for friendly-fire rules; undefined = neutral (practice targets). */
+  readonly team?: number
   /** Returns true if this damage killed the target. */
   takeDamage(amount: number, isHead: boolean): boolean
+}
+
+/** True when a shot from `sourceTeam` must not damage `target` (allies). */
+export function isFriendly(sourceTeam: number | undefined, target: Damageable): boolean {
+  return sourceTeam !== undefined && target.team !== undefined && sourceTeam === target.team
 }
 
 /** A dynamic, damageable AABB (entity hitbox). */
