@@ -114,22 +114,36 @@
         <h1>RIFLE<span>.GG</span></h1>
         <p class="tagline">웹 기반 아레나 FPS</p>
 
-        <div id="mode-row">
-          <button id="play-btn">연습장</button>
-          <button id="duel-btn">1v1 봇 대전</button>
+        <!-- step 1: nickname gate -->
+        <div id="nick-gate">
+          <input id="nick-input" placeholder="닉네임을 입력하세요" maxlength="12" autocomplete="off" spellcheck="false" />
+          <button id="nick-enter-btn">입장</button>
         </div>
 
-        <div id="online-row">
-          <span class="row-label">온라인 1v1</span>
-          <button id="online-create-btn">방 만들기</button>
-          <input id="online-code" placeholder="코드" maxlength="4" autocomplete="off" spellcheck="false" />
-          <button id="online-join-btn">참가</button>
-        </div>
-        <div id="online-status" class="hidden">
-          <span id="online-status-text"></span>
-          <button id="online-go-btn" class="hidden">클릭하여 시작</button>
-          <button id="online-cancel-btn">취소</button>
-        </div>
+        <!-- step 2: lobby (shown after entering a nickname) -->
+        <div id="lobby" class="hidden">
+          <div id="lobby-greeting">
+            <span>안녕하세요, <b id="lobby-nick"></b>님</span>
+            <button id="nick-change-btn">닉네임 변경</button>
+          </div>
+
+          <div id="mode-row">
+            <button id="play-btn">연습장</button>
+            <button id="duel-btn">봇 대전</button>
+          </div>
+
+          <div id="rooms-header">
+            <span class="row-label">대기방 목록</span>
+            <button id="rooms-refresh-btn">새로고침</button>
+            <button id="online-create-btn">방 만들기</button>
+          </div>
+          <div id="rooms-list"><div class="rooms-empty">서버에 연결 중…</div></div>
+
+          <div id="online-row">
+            <span class="row-label">코드로 참가</span>
+            <input id="online-code" placeholder="코드" maxlength="4" autocomplete="off" spellcheck="false" />
+            <button id="online-join-btn">참가</button>
+          </div>
 
         <div id="difficulty-row">
           <span class="row-label">봇 난이도</span>
@@ -184,6 +198,14 @@
             ><b>왼쪽</b> 조이스틱 이동 · <b>오른쪽</b> 드래그 시점 · <b>발사 버튼을 누른 채 드래그</b>하면
             쏘면서 조준 이동</span
           >
+        </div>
+        </div>
+        <!-- end #lobby -->
+
+        <div id="online-status" class="hidden">
+          <span id="online-status-text"></span>
+          <button id="online-go-btn" class="hidden">클릭하여 시작</button>
+          <button id="online-cancel-btn">취소</button>
         </div>
       </div>
     </div>
