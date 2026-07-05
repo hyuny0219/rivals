@@ -19,6 +19,7 @@
     <div id="hud" class="hidden">
       <div id="crosshair"><i></i><i></i><i></i><i></i></div>
       <div id="hitmarker"><i></i><i></i><i></i><i></i></div>
+      <div id="scope" class="hidden"><span class="scope-v"></span><span class="scope-h"></span><span class="scope-dot"></span></div>
       <div id="dash-indicator"><span id="dash-fill"></span><label>대시 (Shift)</label></div>
 
       <div id="hp-wrap">
@@ -156,6 +157,11 @@
             <span class="row-label">FOV</span>
             <input id="set-fov" type="range" min="60" max="110" step="1" />
             <span id="set-fov-val" class="setting-val"></span>
+          </div>
+          <div class="setting-row">
+            <span class="row-label">자동 조준 사격</span>
+            <button id="set-autofire" class="toggle-btn">끔</button>
+            <span class="setting-val">조준선이 적에게 닿으면 자동 발사</span>
           </div>
         </details>
 

@@ -31,6 +31,7 @@ const weaponName = document.querySelector<HTMLDivElement>('#weapon-name')!
 const slotEls = [...document.querySelectorAll<HTMLSpanElement>('#weapon-slots span')]
 const touchSlotEls = [...document.querySelectorAll<HTMLButtonElement>('.slot-btn')]
 const crosshair = document.querySelector<HTMLDivElement>('#crosshair')!
+const scope = document.querySelector<HTMLDivElement>('#scope')!
 const hitmarker = document.querySelector<HTMLDivElement>('#hitmarker')!
 const killfeed = document.querySelector<HTMLDivElement>('#killfeed')!
 const scoreWrap = document.querySelector<HTMLDivElement>('#score-wrap')!
@@ -1029,7 +1030,10 @@ function updateHud() {
   }
 
   crosshair.style.setProperty('--gap', `${weapons.crosshairGap.toFixed(1)}px`)
-  crosshair.style.display = weapons.aiming && w.id === 'sniper' ? 'none' : ''
+  // sniper zoom swaps the crosshair for a scope reticle so there's still an aim point
+  const sniperScoped = weapons.aiming && w.id === 'sniper'
+  crosshair.style.display = sniperScoped ? 'none' : ''
+  scope.classList.toggle('hidden', !sniperScoped)
 
   if (!scoreboard.classList.contains('hidden')) renderScoreboard()
 
@@ -1173,6 +1177,7 @@ function applySettings() {
   player.sensitivity = 0.0023 * settings.sensitivity
   audio.setVolume(settings.volume)
   weapons.setBaseFov(settings.fov) // respects an active ADS zoom
+  weapons.autoFire = settings.autofire
 }
 
 function wireSettingSlider(
@@ -1197,6 +1202,20 @@ function wireSettingSlider(
 wireSettingSlider('#set-sens', '#set-sens-val', () => settings.sensitivity, (v) => (settings.sensitivity = v), (v) => `${v.toFixed(2)}x`)
 wireSettingSlider('#set-vol', '#set-vol-val', () => settings.volume, (v) => (settings.volume = v), (v) => `${Math.round(v * 100)}%`)
 wireSettingSlider('#set-fov', '#set-fov-val', () => settings.fov, (v) => (settings.fov = v), (v) => `${v}°`)
+
+const autofireBtn = document.querySelector<HTMLButtonElement>('#set-autofire')!
+function renderAutofireBtn() {
+  autofireBtn.textContent = settings.autofire ? '켬' : '끔'
+  autofireBtn.classList.toggle('on', settings.autofire)
+}
+renderAutofireBtn()
+autofireBtn.addEventListener('click', () => {
+  settings.autofire = !settings.autofire
+  renderAutofireBtn()
+  applySettings()
+  saveSettings(settings)
+})
+
 applySettings()
 
 async function startGame() {
@@ -1607,6 +1626,13 @@ requestAnimationFrame(frame)
   /** Test helper: simulate a network drop (triggers auto-reconnect). */
   dropSocket() {
     online.simulateDrop()
+  },
+  /** Test helper: toggle auto-fire and report scope/aiming state. */
+  setAutofire(on: boolean) {
+    weapons.autoFire = on
+  },
+  get aimUi() {
+    return { scopeShown: !scope.classList.contains('hidden'), aiming: weapons.aiming, weapon: weapons.weapon.id }
   },
   damageBot(amount: number, index = 0) {
     enemyBots[index]?.takeDamage(amount, false)

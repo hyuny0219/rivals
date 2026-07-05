@@ -98,6 +98,9 @@ export class WeaponController {
   private prevSelection: { slot: WeaponSlot; index: number } | null = null
   private quickThrowCooldown = 0
 
+  /** Auto-fire hitscan weapons while the crosshair is on an enemy (opt-in). */
+  autoFire = false
+
   /** Online relay hooks (visual-only info for the opponent's client). */
   onFired?: (weaponId: string) => void
   onGrenadeThrown?: (origin: THREE.Vector3, dir: THREE.Vector3) => void
@@ -158,13 +161,23 @@ export class WeaponController {
       const wantsFire = w.auto
         ? input.isDown('Mouse0') || input.consumePress('Mouse0')
         : input.consumePress('Mouse0')
-      if (wantsFire) this.fire()
+      // auto-fire assist: pull the trigger for you when the aim is on an enemy
+      if (wantsFire || (this.autoFire && this.aimOnEnemy())) this.fire()
     } else if (this.magEmpty() && this.reloadTimer <= 0 && this.switchTimer <= 0 && input.consumePress('Mouse0')) {
       this.tryReload()
     }
 
     this.updateAds(dt)
     this.updateViewmodel(dt)
+  }
+
+  /** True if the (spread-free) center aim ray hits a live enemy in range. */
+  private aimOnEnemy(): boolean {
+    const w = this.weapon
+    if (w.kind !== 'hitscan') return false // don't auto-lob grenades / swing knife
+    this.camera.getWorldDirection(this.vDir)
+    const hit = this.world.raycast(this.camera.position, this.vDir, w.range, this.self)
+    return !!(hit?.hitbox && hit.hitbox.entity.alive && !isFriendly(this.self.team, hit.hitbox.entity))
   }
 
   private magEmpty(): boolean {
