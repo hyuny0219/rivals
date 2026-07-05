@@ -9,27 +9,48 @@ export interface PeerSnapshot {
   sliding: boolean
 }
 
+export interface RosterEntry {
+  id: string
+  team: number
+}
+
+export interface LobbyInfo {
+  code: string
+  teamSize: number
+  hostId: string
+  you: string
+  players: { id: string; team: number; ready: boolean }[]
+}
+
+export interface RosterInfo {
+  teamSize: number
+  hostId: string
+  you: string
+  players: RosterEntry[]
+  bots: RosterEntry[]
+}
+
 export interface RoundInfo {
   phase: OnlinePhase
   round: number
   scoreYou: number
   scoreEnemy: number
-  hpYou: number
-  hpEnemy: number
+  /** Server-authoritative HP per entity id. */
+  hps: Record<string, number>
   youWon?: boolean
 }
 
 export interface OnlineCallbacks {
   onCreated: (code: string) => void
-  onMatched: () => void
+  onLobby: (info: LobbyInfo) => void
+  onRoster: (info: RosterInfo) => void
   onRound: (info: RoundInfo) => void
-  onHp: (you: number, enemy: number) => void
-  onPeerState: (snap: PeerSnapshot) => void
-  onPeerFire: (weaponId: string) => void
-  onPeerGrenade: (origin: [number, number, number], dir: [number, number, number]) => void
-  onPeerLeft: () => void
+  onHp: (id: string, hp: number) => void
+  onPeerState: (id: string, snap: PeerSnapshot) => void
+  onPeerFire: (id: string, weaponId: string) => void
+  onPeerGrenade: (id: string, origin: [number, number, number], dir: [number, number, number]) => void
   onError: (reason: string) => void
-  onDisconnect: () => void
+  onDisconnect: (reason: string) => void
 }
 
 /** Default server: local dev server when running on localhost, Render otherwise. */
@@ -38,7 +59,7 @@ export function defaultServerUrl(): string {
   return local ? 'ws://localhost:8081' : 'wss://rifle-gg-server.onrender.com'
 }
 
-/** WebSocket client for online 1v1: room handshake + message plumbing. */
+/** WebSocket client for online team matches: lobby handshake + plumbing. */
 export class OnlineManager {
   phase: OnlinePhase = 'idle'
   code = ''
@@ -70,16 +91,16 @@ export class OnlineManager {
         this.ws = null
         if (this.phase !== 'idle') {
           this.phase = 'idle'
-          this.cb.onDisconnect()
+          this.cb.onDisconnect('connection-lost')
         }
       }
     })
   }
 
-  async create(url: string) {
+  async create(url: string, teamSize: number) {
     await this.connect(url)
     this.phase = 'waiting'
-    this.send({ t: 'create' })
+    this.send({ t: 'create', teamSize })
   }
 
   async join(url: string, code: string) {
@@ -99,20 +120,21 @@ export class OnlineManager {
     ws?.close()
   }
 
-  sendState(snap: PeerSnapshot) {
-    this.send({ t: 'state', ...snap })
+  /** Own state, or a host-simulated bot's state when `asId` is a bot id. */
+  sendState(snap: PeerSnapshot, asId?: string) {
+    this.send({ t: 'state', ...(asId ? { id: asId } : {}), ...snap })
   }
 
-  sendFire(weaponId: string) {
-    this.send({ t: 'fire', weapon: weaponId })
+  sendFire(weaponId: string, asId?: string) {
+    this.send({ t: 'fire', weapon: weaponId, ...(asId ? { id: asId } : {}) })
   }
 
-  sendGrenade(origin: [number, number, number], dir: [number, number, number]) {
-    this.send({ t: 'grenade', origin, dir })
+  sendGrenade(origin: [number, number, number], dir: [number, number, number], asId?: string) {
+    this.send({ t: 'grenade', origin, dir, ...(asId ? { id: asId } : {}) })
   }
 
-  sendHit(weaponId: string, damage: number, self = false) {
-    this.send({ t: 'hit', weapon: weaponId, damage, self })
+  sendHit(weaponId: string, damage: number, targetId: string, attackerId?: string) {
+    this.send({ t: 'hit', weapon: weaponId, damage, target: targetId, ...(attackerId ? { attacker: attackerId } : {}) })
   }
 
   private send(msg: Record<string, unknown>) {
@@ -131,8 +153,12 @@ export class OnlineManager {
         this.code = String(msg.code)
         this.cb.onCreated(this.code)
         break
-      case 'matched':
-        this.cb.onMatched()
+      case 'lobby':
+        this.code = String(msg.code)
+        this.cb.onLobby(msg as unknown as LobbyInfo)
+        break
+      case 'roster':
+        this.cb.onRoster(msg as unknown as RosterInfo)
         break
       case 'round': {
         const info = msg as unknown as RoundInfo
@@ -141,25 +167,25 @@ export class OnlineManager {
         break
       }
       case 'hp':
-        this.cb.onHp(Number(msg.you), Number(msg.enemy))
+        this.cb.onHp(String(msg.id), Number(msg.hp))
         break
       case 'state':
-        this.cb.onPeerState(msg as unknown as PeerSnapshot)
+        this.cb.onPeerState(String(msg.id), msg as unknown as PeerSnapshot)
         break
       case 'fire':
-        this.cb.onPeerFire(String(msg.weapon))
+        this.cb.onPeerFire(String(msg.id), String(msg.weapon))
         break
       case 'grenade':
-        this.cb.onPeerGrenade(msg.origin as [number, number, number], msg.dir as [number, number, number])
-        break
-      case 'peerLeft':
-        this.cb.onPeerLeft()
-        this.leave()
+        this.cb.onPeerGrenade(
+          String(msg.id),
+          msg.origin as [number, number, number],
+          msg.dir as [number, number, number],
+        )
         break
       case 'roomClosed':
         if (this.phase !== 'idle') {
           this.phase = 'idle'
-          this.cb.onDisconnect()
+          this.cb.onDisconnect(String(msg.reason ?? 'closed'))
         }
         this.ws?.close()
         break

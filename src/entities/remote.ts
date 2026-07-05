@@ -19,7 +19,8 @@ interface TimedSnapshot extends PeerSnapshot {
  * takeDamage does not mutate HP — the server owns HP; it reports the claim.
  */
 export class RemotePlayer implements Damageable {
-  readonly name = '상대'
+  name = '상대'
+  team: number | undefined
   readonly center = new THREE.Vector3()
   alive = false
   readonly group = new THREE.Group()
@@ -34,14 +35,17 @@ export class RemotePlayer implements Damageable {
   private headBox: Hitbox
   private bodyBox: Hitbox
 
-  constructor(world: PhysicsWorld) {
-    const mat = (color: number) => new THREE.MeshLambertMaterial({ color })
+  private torsoMat: THREE.MeshLambertMaterial
+
+  constructor(world: PhysicsWorld, color = 0x3f6fc9) {
+    const mat = (color_: number) => new THREE.MeshLambertMaterial({ color: color_ })
     this.body = new THREE.Group()
     const legL = new THREE.Mesh(new THREE.BoxGeometry(0.3, LEGS_H, 0.34), mat(0x2f3a45))
     legL.position.set(-0.21, LEGS_H / 2, 0)
     const legR = legL.clone()
     legR.position.x = 0.21
-    const torso = new THREE.Mesh(new THREE.BoxGeometry(TORSO.w, TORSO.h, TORSO.d), mat(0x3f6fc9))
+    this.torsoMat = mat(color)
+    const torso = new THREE.Mesh(new THREE.BoxGeometry(TORSO.w, TORSO.h, TORSO.d), this.torsoMat)
     torso.position.y = LEGS_H + TORSO.h / 2
     const head = new THREE.Mesh(new THREE.BoxGeometry(HEAD.w, HEAD.h, HEAD.w), mat(0xf2c14e))
     head.position.y = LEGS_H + TORSO.h + HEAD.h / 2
@@ -64,6 +68,12 @@ export class RemotePlayer implements Damageable {
   // know the weapon); this entity never mutates HP — the server owns it.
   takeDamage(): boolean {
     return false
+  }
+
+  setAppearance(name: string, team: number, color: number) {
+    this.name = name
+    this.team = team
+    this.torsoMat.color.setHex(color)
   }
 
   activate(position: THREE.Vector3, yaw: number) {

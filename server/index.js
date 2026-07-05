@@ -1,9 +1,11 @@
 /**
- * RIFLE.GG game server — room-code 1v1 duels over WebSocket.
+ * RIFLE.GG game server — room-code team matches (1v1 up to 4v4) over WebSocket.
  *
  * The server is the authority for HP, scores, and the round state machine.
  * Movement/aim is client-simulated and relayed; damage arrives as claims
- * from the shooter and is validated against per-weapon caps + a rate limit.
+ * and is validated against per-weapon caps, friendly fire, and a rate limit.
+ * Empty slots are bots simulated by the host client (the room creator),
+ * whose bot state/claims are attributed to bot ids.
  */
 import { createServer } from 'http'
 import { WebSocketServer } from 'ws'
@@ -27,7 +29,7 @@ const DAMAGE_CAP = {
   knife: 55,
   grenade: 100,
 }
-const MAX_CLAIMS_PER_SECOND = 25
+const MAX_CLAIMS_PER_SECOND = 25 // per attacker entity
 
 const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
 const rooms = new Map() // code -> Room
@@ -60,7 +62,7 @@ function sanitizeState(msg) {
   const yaw = finite(msg.yaw, 1000)
   const pitch = finite(msg.pitch, 10)
   if (x === null || y === null || z === null || yaw === null || pitch === null) return null
-  return { t: 'state', x, y, z, yaw, pitch, sliding: msg.sliding === true }
+  return { x, y, z, yaw, pitch, sliding: msg.sliding === true }
 }
 
 function sanitizeVec3(v) {
@@ -70,17 +72,20 @@ function sanitizeVec3(v) {
 }
 
 class Room {
-  constructor(code) {
+  constructor(code, teamSize) {
     this.code = code
-    this.sockets = [null, null]
-    this.ready = [false, false]
-    this.hp = [MAX_HP, MAX_HP]
+    this.teamSize = Math.max(1, Math.min(4, Number(teamSize) || 1))
+    this.capacity = this.teamSize * 2
+    this.players = [] // {id, ws, team, ready}
+    this.bots = [] // {id, team}
+    this.entities = new Map() // id -> {team, hp, isBot}
     this.score = [0, 0]
     this.round = 0
     this.state = 'waiting' // waiting | countdown | combat | roundEnd | matchEnd
     this.timer = null
     this.destroyed = false
-    this.claimWindow = [[], []] // timestamps of recent damage claims per side
+    this.nextPlayerNum = 1
+    this.claimWindows = new Map() // attacker id -> timestamps
     this.touch()
   }
 
@@ -88,23 +93,92 @@ class Room {
     this.lastActivity = Date.now()
   }
 
-  broadcast(msg) {
-    send(this.sockets[0], msg)
-    send(this.sockets[1], msg)
+  get hostId() {
+    return this.players[0]?.id
   }
 
-  /** Per-side view of the round state (scores oriented to the receiver). */
+  broadcast(msg, exceptWs = null) {
+    for (const p of this.players) {
+      if (p.ws !== exceptWs) send(p.ws, msg)
+    }
+  }
+
+  addPlayer(ws) {
+    const id = `p${this.nextPlayerNum++}`
+    const t0 = this.players.filter((p) => p.team === 0).length
+    const t1 = this.players.filter((p) => p.team === 1).length
+    // creator takes team 0; then balance, sending the 2nd player to team 1
+    let team
+    if (this.players.length === 0) team = 0
+    else if (t1 < t0) team = 1
+    else if (t0 < t1) team = 0
+    else team = 0
+    const player = { id, ws, team, ready: false }
+    this.players.push(player)
+    ws.room = this
+    ws.playerId = id
+    this.sendLobby()
+    return player
+  }
+
+  sendLobby() {
+    for (const p of this.players) {
+      send(p.ws, {
+        t: 'lobby',
+        code: this.code,
+        teamSize: this.teamSize,
+        hostId: this.hostId,
+        you: p.id,
+        players: this.players.map((q) => ({ id: q.id, team: q.team, ready: q.ready })),
+      })
+    }
+  }
+
+  tryStart() {
+    if (this.state !== 'waiting') return
+    if (this.players.length === 0 || !this.players.every((p) => p.ready)) return
+    // fill empty slots with bots
+    this.bots = []
+    let botNum = 1
+    for (const team of [0, 1]) {
+      const humans = this.players.filter((p) => p.team === team).length
+      for (let i = humans; i < this.teamSize; i++) {
+        this.bots.push({ id: `b${botNum++}`, team })
+      }
+    }
+    this.entities.clear()
+    for (const p of this.players) this.entities.set(p.id, { team: p.team, hp: MAX_HP, isBot: false })
+    for (const b of this.bots) this.entities.set(b.id, { team: b.team, hp: MAX_HP, isBot: true })
+
+    for (const p of this.players) {
+      send(p.ws, {
+        t: 'roster',
+        teamSize: this.teamSize,
+        hostId: this.hostId,
+        you: p.id,
+        players: this.players.map((q) => ({ id: q.id, team: q.team })),
+        bots: this.bots.map((b) => ({ id: b.id, team: b.team })),
+      })
+    }
+    this.startRound()
+  }
+
+  hpSnapshot() {
+    const out = {}
+    for (const [id, e] of this.entities) out[id] = e.hp
+    return out
+  }
+
   sendPhase(extra = {}) {
-    for (let side = 0; side < 2; side++) {
-      send(this.sockets[side], {
+    for (const p of this.players) {
+      send(p.ws, {
         t: 'round',
         phase: this.state,
         round: this.round,
-        scoreYou: this.score[side],
-        scoreEnemy: this.score[side ^ 1],
-        hpYou: this.hp[side],
-        hpEnemy: this.hp[side ^ 1],
-        ...('winner' in extra ? { youWon: extra.winner === side } : {}),
+        scoreYou: this.score[p.team],
+        scoreEnemy: this.score[p.team ^ 1],
+        hps: this.hpSnapshot(),
+        ...('winner' in extra ? { youWon: extra.winner === p.team } : {}),
       })
     }
   }
@@ -112,7 +186,7 @@ class Room {
   startRound() {
     if (this.destroyed) return
     this.round++
-    this.hp = [MAX_HP, MAX_HP]
+    for (const e of this.entities.values()) e.hp = MAX_HP
     this.state = 'countdown'
     this.sendPhase()
     this.timer = setTimeout(
@@ -124,17 +198,52 @@ class Room {
     )
   }
 
-  applyDamage(targetSide, damage, killerSide) {
+  rateOk(attackerId) {
+    const now = Date.now()
+    const window = (this.claimWindows.get(attackerId) ?? []).filter((t) => now - t < 1000)
+    window.push(now)
+    this.claimWindows.set(attackerId, window)
+    return window.length <= MAX_CLAIMS_PER_SECOND
+  }
+
+  handleHit(ws, msg) {
     if (this.state !== 'combat') return
-    this.hp[targetSide] = Math.max(0, this.hp[targetSide] - damage)
-    for (let side = 0; side < 2; side++) {
-      send(this.sockets[side], { t: 'hp', you: this.hp[side], enemy: this.hp[side ^ 1] })
+    // attribution: players claim as themselves; the host may claim for its bots
+    let attackerId = ws.playerId
+    if (typeof msg.attacker === 'string' && msg.attacker !== ws.playerId) {
+      const bot = this.entities.get(msg.attacker)
+      if (!bot?.isBot || ws.playerId !== this.hostId) return
+      attackerId = msg.attacker
     }
-    if (this.hp[targetSide] <= 0) this.endRound(targetSide === killerSide ? targetSide ^ 1 : killerSide)
+    const attacker = this.entities.get(attackerId)
+    const target = this.entities.get(String(msg.target ?? ''))
+    if (!attacker || !target) return
+    if (attacker.hp <= 0 || target.hp <= 0) return
+    // friendly fire is off (self-damage allowed)
+    if (attacker.team === target.team && attackerId !== String(msg.target)) return
+    if (!this.rateOk(attackerId)) return
+    const cap = Object.hasOwn(DAMAGE_CAP, msg.weapon) ? DAMAGE_CAP[msg.weapon] : 0
+    if (!cap) return
+    const damage = Math.min(Math.max(0, Math.round(Number(msg.damage) || 0)), cap)
+    if (damage <= 0) return
+
+    target.hp = Math.max(0, target.hp - damage)
+    this.broadcast({ t: 'hp', id: String(msg.target), hp: target.hp })
+    if (target.hp <= 0) this.checkWipe()
+  }
+
+  checkWipe() {
+    for (const team of [0, 1]) {
+      const alive = [...this.entities.values()].filter((e) => e.team === team && e.hp > 0).length
+      if (alive === 0) {
+        this.endRound(team ^ 1)
+        return
+      }
+    }
   }
 
   endRound(winner) {
-    if (this.destroyed) return
+    if (this.destroyed || this.state !== 'combat') return
     clearTimeout(this.timer)
     this.score[winner]++
     if (this.score[winner] >= WIN_SCORE) {
@@ -148,20 +257,23 @@ class Room {
     }
   }
 
-  rateOk(side) {
-    const now = Date.now()
-    const window = this.claimWindow[side].filter((t) => now - t < 1000)
-    window.push(now)
-    this.claimWindow[side] = window
-    return window.length <= MAX_CLAIMS_PER_SECOND
+  /** Relay a state/fire/grenade message with validated attribution. */
+  relay(ws, msg, payload) {
+    let id = ws.playerId
+    if (typeof msg.id === 'string' && msg.id !== ws.playerId) {
+      const e = this.entities.get(msg.id)
+      if (!e?.isBot || ws.playerId !== this.hostId) return
+      id = msg.id
+    }
+    this.broadcast({ ...payload, id }, ws)
   }
 
   destroy(reason) {
     this.destroyed = true
     clearTimeout(this.timer)
     this.broadcast({ t: 'roomClosed', reason })
-    for (const ws of this.sockets) {
-      if (ws) ws.room = null
+    for (const p of this.players) {
+      if (p.ws) p.ws.room = null
     }
     rooms.delete(this.code)
   }
@@ -176,7 +288,7 @@ const wss = new WebSocketServer({ server: httpServer, maxPayload: 4096 })
 
 wss.on('connection', (ws) => {
   ws.room = null
-  ws.side = -1
+  ws.playerId = ''
   ws.isAlive = true
   ws.on('pong', () => (ws.isAlive = true))
 
@@ -195,62 +307,52 @@ wss.on('connection', (ws) => {
         if (room) return
         const code = makeCode()
         if (!code) return send(ws, { t: 'error', reason: 'busy' })
-        const newRoom = new Room(code)
-        newRoom.sockets[0] = ws
-        ws.room = newRoom
-        ws.side = 0
+        const newRoom = new Room(code, msg.teamSize)
         rooms.set(code, newRoom)
+        newRoom.addPlayer(ws)
         send(ws, { t: 'created', code })
         break
       }
       case 'join': {
         if (room) return
         const target = rooms.get(String(msg.code ?? '').toUpperCase())
-        if (!target || target.sockets[1] || target.state !== 'waiting') {
+        if (!target || target.state !== 'waiting' || target.players.length >= target.capacity) {
           return send(ws, { t: 'error', reason: 'no-room' })
         }
-        target.sockets[1] = ws
-        ws.room = target
-        ws.side = 1
+        target.addPlayer(ws)
         target.touch()
-        target.broadcast({ t: 'matched' })
         break
       }
       case 'ready': {
         if (!room || room.state !== 'waiting') return
-        room.ready[ws.side] = true
-        if (room.ready[0] && room.ready[1]) room.startRound()
+        const player = room.players.find((p) => p.ws === ws)
+        if (!player) return
+        player.ready = true
+        room.sendLobby()
+        room.tryStart()
         break
       }
       case 'state': {
-        // movement snapshot → sanitize (finite numbers only) and relay
         if (!room) return
         const snap = sanitizeState(msg)
-        if (snap) send(room.sockets[ws.side ^ 1], snap)
+        if (snap) room.relay(ws, msg, { t: 'state', ...snap })
         break
       }
       case 'fire': {
         if (!room) return
-        send(room.sockets[ws.side ^ 1], { t: 'fire', weapon: String(msg.weapon ?? '') })
+        room.relay(ws, msg, { t: 'fire', weapon: String(msg.weapon ?? '') })
         break
       }
       case 'grenade': {
         if (!room) return
         const origin = sanitizeVec3(msg.origin)
         const dir = sanitizeVec3(msg.dir)
-        if (origin && dir) send(room.sockets[ws.side ^ 1], { t: 'grenade', origin, dir })
+        if (origin && dir) room.relay(ws, msg, { t: 'grenade', origin, dir })
         break
       }
       case 'hit': {
-        if (!room || room.state !== 'combat') return
-        if (!room.rateOk(ws.side)) return
-        // own-property lookup only: 'toString' etc. must not resolve a cap
-        const cap = Object.hasOwn(DAMAGE_CAP, msg.weapon) ? DAMAGE_CAP[msg.weapon] : 0
-        if (!cap) return
-        const damage = Math.min(Math.max(0, Math.round(Number(msg.damage) || 0)), cap)
-        if (damage <= 0) return
-        const targetSide = msg.self ? ws.side : ws.side ^ 1
-        room.applyDamage(targetSide, damage, ws.side)
+        if (!room) return
+        room.handleHit(ws, msg)
         break
       }
     }
@@ -259,8 +361,8 @@ wss.on('connection', (ws) => {
   ws.on('close', () => {
     const room = ws.room
     if (!room) return
-    const other = room.sockets[ws.side ^ 1]
-    send(other, { t: 'peerLeft' })
+    // v1: any departure tears the room down (the host runs the bots, and
+    // rounds assume a fixed roster)
     room.destroy('peer-left')
   })
 })
