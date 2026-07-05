@@ -175,6 +175,15 @@ class Room {
     }
   }
 
+  /** Host chose to start now, filling every empty slot with bots. */
+  startWithBots() {
+    if (this.state !== 'waiting') return
+    this.fillBots = true
+    for (const p of this.players) p.ready = true
+    this.sendLobby()
+    this.tryStart()
+  }
+
   tryStart() {
     if (this.state !== 'waiting') return
     if (this.players.length === 0 || !this.players.every((p) => p.ready)) return
@@ -382,6 +391,12 @@ wss.on('connection', (ws) => {
         player.ready = true
         room.sendLobby()
         room.tryStart()
+        break
+      }
+      case 'fillStart': {
+        if (!room || room.state !== 'waiting') return
+        if (ws.playerId !== room.hostId) return
+        room.startWithBots()
         break
       }
       case 'state': {

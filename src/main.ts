@@ -55,6 +55,7 @@ const onlineCodeInput = document.querySelector<HTMLInputElement>('#online-code')
 const onlineStatus = document.querySelector<HTMLDivElement>('#online-status')!
 const onlineStatusText = document.querySelector<HTMLSpanElement>('#online-status-text')!
 const onlineGoBtn = document.querySelector<HTMLButtonElement>('#online-go-btn')!
+const onlineFillBtn = document.querySelector<HTMLButtonElement>('#online-fill-btn')!
 const onlineCancelBtn = document.querySelector<HTMLButtonElement>('#online-cancel-btn')!
 const loadoutPanel = document.querySelector<HTMLDivElement>('#loadout-panel')!
 const nickGate = document.querySelector<HTMLDivElement>('#nick-gate')!
@@ -453,6 +454,7 @@ let onlineScoreYou = 0
 let onlineScoreEnemy = 0
 let onlineRound = 0
 let onlineGoRequested = false
+let onlineFillRequested = false
 let onlineSendTimer = 0
 const onlineEntities = new Map<string, OnlineEntity>()
 const idByEntity = new Map<Damageable, string>()
@@ -460,10 +462,11 @@ const onlineTimers: number[] = []
 const tmpEye = new THREE.Vector3()
 const tmpDir = new THREE.Vector3()
 
-function setOnlineStatus(html: string, showGo = false) {
+function setOnlineStatus(html: string, showGo = false, showFill = false) {
   onlineStatus.classList.remove('hidden')
   onlineStatusText.innerHTML = html
   onlineGoBtn.classList.toggle('hidden', !showGo)
+  onlineFillBtn.classList.toggle('hidden', !showFill)
 }
 
 function clearOnlineTimers() {
@@ -635,6 +638,7 @@ function endOnlineCleanup() {
   aliveRow.classList.add('hidden')
   onlineStatus.classList.add('hidden')
   onlineGoBtn.classList.add('hidden')
+  onlineFillBtn.classList.add('hidden')
   lobbyEl.classList.remove('hidden') // back to the room browser
   refreshRooms()
   if (document.pointerLockElement === canvas) document.exitPointerLock()
@@ -650,17 +654,21 @@ function renderLobby(info: LobbyInfo) {
       .join(', ') || '—'
   const me = info.players.find((p) => p.id === info.you)
   const fillNote = info.fillBots === false ? '봇 없음 (정원이 차면 시작)' : '빈자리는 봇'
+  const isHost = info.you === info.hostId
+  const notFull = info.players.length < cap
   setOnlineStatus(
     `방 <b>${info.code}</b> (${info.teamSize}v${info.teamSize}) · 맵: ${mapById(info.mapId).name} · ${info.players.length}/${cap}명 · ${fillNote}<br/>` +
       `<span style="color:#57d38c">팀 A: ${label(0)}</span> · <span style="color:#ff5a3c">팀 B: ${label(1)}</span>`,
     !(me?.ready ?? false),
+    isHost && notFull, // host can fill the shortage with bots and start now
   )
 }
 
 const online = new OnlineManager({
   onCreated: (code) => {
     lobbyEl.classList.add('hidden') // hide the browser while in a room
-    setOnlineStatus(`방 코드: <b>${code}</b> — 참가자 대기 중…`, true)
+    // creator is always host and alone (not full) → offer immediate bot-fill
+    setOnlineStatus(`방 코드: <b>${code}</b> — 참가자 대기 중…`, true, true)
   },
   onLobby: (info) => {
     lobbyEl.classList.add('hidden')
@@ -746,15 +754,20 @@ createCancelBtn.addEventListener('click', () => {
   lobbyEl.classList.remove('hidden')
 })
 
+// free-tier servers sleep after idle; report the wake-up while retrying
+function wakingStatus(attempt: number, max: number) {
+  setOnlineStatus(`무료 서버를 깨우는 중… 잠시만요 (${attempt}/${max})`)
+}
+
 createConfirmBtn.addEventListener('click', async () => {
   if (online.active) return
   createPanel.classList.add('hidden')
   audio.ensure()
   setOnlineStatus('서버 연결 중…')
   try {
-    await online.create(defaultServerUrl(), teamSize, resolveMapId(), fillBots, selectedDifficulty)
-  } catch {
-    setOnlineStatus('서버에 연결할 수 없습니다 (잠시 후 다시 시도해주세요)')
+    await online.create(defaultServerUrl(), teamSize, resolveMapId(), fillBots, selectedDifficulty, wakingStatus)
+  } catch (e) {
+    if ((e as Error).message !== 'cancelled') setOnlineStatus('서버에 연결할 수 없습니다 (잠시 후 다시 시도해주세요)')
   }
 })
 
@@ -765,9 +778,9 @@ onlineJoinBtn.addEventListener('click', async () => {
   audio.ensure()
   setOnlineStatus('입장 중…')
   try {
-    await online.join(defaultServerUrl(), code)
-  } catch {
-    setOnlineStatus('서버에 연결할 수 없습니다 (잠시 후 다시 시도해주세요)')
+    await online.join(defaultServerUrl(), code, wakingStatus)
+  } catch (e) {
+    if ((e as Error).message !== 'cancelled') setOnlineStatus('서버에 연결할 수 없습니다 (잠시 후 다시 시도해주세요)')
   }
 })
 
@@ -776,11 +789,17 @@ onlineGoBtn.addEventListener('click', () => {
   void startGame()
 })
 
+onlineFillBtn.addEventListener('click', () => {
+  onlineFillRequested = true
+  void startGame()
+})
+
 onlineCancelBtn.addEventListener('click', () => {
   online.leave()
   teardownRoster()
   onlineStatus.classList.add('hidden')
   onlineGoBtn.classList.add('hidden')
+  onlineFillBtn.classList.add('hidden')
   lobbyEl.classList.remove('hidden')
   refreshRooms() // reconnect + re-list after leaving a room
 })
@@ -815,8 +834,15 @@ function escapeHtml(s: string): string {
 
 function refreshRooms() {
   if (online.active) return
-  online.browse(defaultServerUrl()).catch(() => {
-    roomsList.innerHTML = '<div class="rooms-empty">서버에 연결할 수 없습니다 (무료 서버는 첫 접속에 ~30초)</div>'
+  if (roomsList.querySelector('.room-item') === null) {
+    roomsList.innerHTML = '<div class="rooms-empty">서버 연결 중… (무료 서버는 첫 접속에 최대 ~30초)</div>'
+  }
+  const onWaking = (attempt: number, max: number) => {
+    if (online.active) return
+    roomsList.innerHTML = `<div class="rooms-empty">무료 서버를 깨우는 중… (${attempt}/${max})</div>`
+  }
+  online.browse(defaultServerUrl(), onWaking).catch(() => {
+    roomsList.innerHTML = '<div class="rooms-empty">서버에 연결할 수 없습니다 · 새로고침을 눌러 다시 시도하세요</div>'
   })
 }
 
@@ -825,9 +851,9 @@ async function joinRoom(code: string) {
   audio.ensure()
   setOnlineStatus('입장 중…')
   try {
-    await online.join(defaultServerUrl(), code)
-  } catch {
-    setOnlineStatus('입장에 실패했습니다')
+    await online.join(defaultServerUrl(), code, wakingStatus)
+  } catch (e) {
+    if ((e as Error).message !== 'cancelled') setOnlineStatus('입장에 실패했습니다')
   }
 }
 
@@ -1090,7 +1116,12 @@ function setPlaying(p: boolean) {
     pendingDuel = false
     beginDuel()
   }
-  if (p && onlineGoRequested) {
+  if (p && onlineFillRequested) {
+    onlineFillRequested = false
+    onlineGoRequested = false // fill implies ready+start
+    online.fillStart()
+    showBanner('빈자리를 봇으로 채우는 중…', '', 2.5)
+  } else if (p && onlineGoRequested) {
     onlineGoRequested = false
     online.ready()
     showBanner('상대 준비 대기 중…', '', 3)

@@ -226,6 +226,7 @@ body {
 #online-create-btn,
 #online-join-btn,
 #online-cancel-btn,
+#online-fill-btn,
 #online-go-btn {
   padding: 8px 16px;
   font-size: 13px;
@@ -247,6 +248,16 @@ body {
   background: #ff5a3c;
   border-color: #ff5a3c;
   color: #fff;
+}
+
+#online-fill-btn {
+  background: #57d38c;
+  border-color: #57d38c;
+  color: #10241a;
+}
+
+#online-fill-btn.hidden {
+  display: none;
 }
 
 #online-code {

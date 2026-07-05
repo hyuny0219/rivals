@@ -82,6 +82,7 @@ export class OnlineManager {
   nick = '플레이어'
   private ws: WebSocket | null = null
   private url = ''
+  private connectGen = 0 // bumped by leave() to abort an in-flight retry loop
 
   constructor(private cb: OnlineCallbacks) {}
 
@@ -120,31 +121,59 @@ export class OnlineManager {
   }
 
   /** Open (or reuse) a lobby connection for browsing rooms. */
-  async browse(url: string) {
+  async browse(url: string, onWaking?: (attempt: number, max: number) => void) {
     this.url = url
-    await this.ensure()
+    await this.ensure(onWaking)
     this.list()
   }
 
-  private async ensure() {
+  /** Connect, retrying while a free-tier server cold-starts (~30-50s). */
+  private async ensure(onWaking?: (attempt: number, max: number) => void) {
     if (this.connected) return
-    await this.connect(this.url)
+    const gen = this.connectGen
+    const MAX_ATTEMPTS = 8
+    // nudge the sleeping dyno awake over HTTP (best effort, no-cors).
+    // fetch rejects asynchronously on network errors, so swallow via .catch
+    fetch(this.url.replace(/^ws/, 'http'), { mode: 'no-cors', cache: 'no-store' }).catch(() => {})
+    let lastErr: unknown
+    for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+      if (gen !== this.connectGen) throw new Error('cancelled') // leave() aborted us
+      if (attempt > 1) {
+        onWaking?.(attempt, MAX_ATTEMPTS)
+        await new Promise((r) => setTimeout(r, 4000))
+        if (gen !== this.connectGen) throw new Error('cancelled')
+      }
+      try {
+        await this.connect(this.url)
+        return
+      } catch (e) {
+        lastErr = e
+      }
+    }
+    throw lastErr ?? new Error('connect failed')
   }
 
   list() {
     if (this.connected && this.phase === 'idle') this.send({ t: 'list' })
   }
 
-  async create(url: string, teamSize: number, mapId: string, fillBots = true, difficulty = 'normal') {
+  async create(
+    url: string,
+    teamSize: number,
+    mapId: string,
+    fillBots = true,
+    difficulty = 'normal',
+    onWaking?: (attempt: number, max: number) => void,
+  ) {
     this.url = url
-    await this.ensure()
+    await this.ensure(onWaking)
     this.phase = 'waiting'
     this.send({ t: 'create', teamSize, mapId, nick: this.nick, fillBots, difficulty })
   }
 
-  async join(url: string, code: string) {
+  async join(url: string, code: string, onWaking?: (attempt: number, max: number) => void) {
     this.url = url
-    await this.ensure()
+    await this.ensure(onWaking)
     this.phase = 'waiting'
     this.send({ t: 'join', code, nick: this.nick })
   }
@@ -153,8 +182,14 @@ export class OnlineManager {
     this.send({ t: 'ready' })
   }
 
+  /** Host-only: fill empty slots with bots and start now (short-roster start). */
+  fillStart() {
+    this.send({ t: 'fillStart' })
+  }
+
   leave() {
     this.phase = 'idle'
+    this.connectGen++ // abort any in-flight connect/retry loop
     const ws = this.ws
     this.ws = null
     ws?.close()
