@@ -53,6 +53,8 @@ const mbTitle = document.querySelector<HTMLHeadingElement>('#mb-title')!
 const mbMvp = document.querySelector<HTMLDivElement>('#mb-mvp')!
 const mbTeamA = document.querySelector<HTMLUListElement>('#mb-team-a')!
 const mbTeamB = document.querySelector<HTMLUListElement>('#mb-team-b')!
+const spectateBar = document.querySelector<HTMLDivElement>('#spectate-bar')!
+const spectateName = document.querySelector<HTMLElement>('#spectate-name')!
 const aliveAllies = document.querySelector<HTMLSpanElement>('#alive-allies')!
 const aliveEnemies = document.querySelector<HTMLSpanElement>('#alive-enemies')!
 const onlineCreateBtn = document.querySelector<HTMLButtonElement>('#online-create-btn')!
@@ -1107,6 +1109,76 @@ function hideMatchBoard() {
   matchboard.classList.add('hidden')
 }
 
+// ---------- spectator: a dead player follows a living teammate ----------
+interface SpecTarget {
+  name: string
+  pos: THREE.Vector3
+  yaw: number
+}
+let spectating = false
+let spectateIdx = 0
+const vSpecTarget = new THREE.Vector3()
+const vSpecDesired = new THREE.Vector3()
+const vSpecDir = new THREE.Vector3()
+
+function spectateTargets(): SpecTarget[] {
+  const out: SpecTarget[] = []
+  if (duel.active) {
+    for (const b of allyBots) if (b.alive) out.push({ name: b.name, pos: b.controller.position, yaw: b.controller.yaw })
+  } else if (online.active) {
+    for (const e of onlineEntities.values()) {
+      if (e.team !== onlineTeam) continue
+      if (e.remote?.alive) out.push({ name: e.name, pos: e.remote.position, yaw: e.remote.yaw })
+      else if (e.bot?.alive) out.push({ name: e.name, pos: e.bot.controller.position, yaw: e.bot.controller.yaw })
+    }
+  }
+  return out
+}
+
+function cycleSpectate() {
+  const n = spectateTargets().length
+  if (spectating && n > 0) spectateIdx = (spectateIdx + 1) % n
+}
+
+/** Once per frame while dead: orbit the camera behind a living teammate. */
+function updateSpectator(dt: number) {
+  const dead = playing && (duel.active || online.active) && playerTarget.hp <= 0
+  const targets = dead ? spectateTargets() : []
+  if (!dead || targets.length === 0) {
+    if (spectating) {
+      spectating = false
+      document.body.classList.remove('spectating')
+      spectateBar.classList.add('hidden')
+    }
+    return
+  }
+  if (!spectating) {
+    spectating = true
+    spectateIdx = 0
+    document.body.classList.add('spectating')
+    spectateBar.classList.remove('hidden')
+  }
+  if (spectateIdx >= targets.length) spectateIdx = 0
+  const t = targets[spectateIdx]
+  spectateName.textContent = t.name
+
+  // third-person: behind (+sin,+cos of yaw) and above, looking at the head
+  const BACK = 4.0
+  const UP = 2.3
+  vSpecTarget.set(t.pos.x, t.pos.y + 1.4, t.pos.z)
+  vSpecDesired.set(t.pos.x + Math.sin(t.yaw) * BACK, t.pos.y + UP, t.pos.z + Math.cos(t.yaw) * BACK)
+  // pull the camera in if a wall sits between it and the target
+  vSpecDir.copy(vSpecDesired).sub(vSpecTarget)
+  const dist = vSpecDir.length()
+  if (dist > 0.001) {
+    vSpecDir.divideScalar(dist)
+    const hit = physics.raycast(vSpecTarget, vSpecDir, dist)
+    if (hit) vSpecDesired.copy(vSpecTarget).addScaledVector(vSpecDir, Math.max(0.6, hit.distance - 0.3))
+  }
+  camera.position.lerp(vSpecDesired, Math.min(1, dt * 6))
+  camera.lookAt(vSpecTarget)
+}
+
 window.addEventListener('keydown', (e) => {
   if (e.code !== 'Tab' || e.repeat) return
   e.preventDefault()
@@ -1486,6 +1558,11 @@ document.addEventListener('mousemove', (e) => {
   }
 })
 
+// while dead, a click/tap cycles the spectated teammate
+canvas.addEventListener('pointerdown', () => {
+  if (spectating) cycleSpectate()
+})
+
 // ---------- resize ----------
 window.addEventListener('resize', () => {
   camera.aspect = window.innerWidth / window.innerHeight
@@ -1630,6 +1707,7 @@ function frame(now: number) {
     weapons.tickVisual(dt) // muzzle flash decays even while frozen
     for (const d of dummies) d.update(dt)
     effects.update(dt)
+    updateSpectator(dt) // dead players follow a living teammate
     updateHud()
   } else {
     accumulator = 0
