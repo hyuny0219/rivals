@@ -12,6 +12,16 @@ export interface PeerSnapshot {
 export interface RosterEntry {
   id: string
   team: number
+  nick?: string
+}
+
+export interface RoomSummary {
+  code: string
+  host: string
+  count: number
+  cap: number
+  teamSize: number
+  mapId: string
 }
 
 export interface LobbyInfo {
@@ -20,7 +30,7 @@ export interface LobbyInfo {
   mapId: string
   hostId: string
   you: string
-  players: { id: string; team: number; ready: boolean }[]
+  players: { id: string; team: number; ready: boolean; nick: string }[]
 }
 
 export interface RosterInfo {
@@ -51,6 +61,7 @@ export interface OnlineCallbacks {
   onPeerState: (id: string, snap: PeerSnapshot) => void
   onPeerFire: (id: string, weaponId: string) => void
   onPeerGrenade: (id: string, origin: [number, number, number], dir: [number, number, number]) => void
+  onRoomList: (rooms: RoomSummary[]) => void
   onError: (reason: string) => void
   onDisconnect: (reason: string) => void
 }
@@ -65,12 +76,18 @@ export function defaultServerUrl(): string {
 export class OnlineManager {
   phase: OnlinePhase = 'idle'
   code = ''
+  nick = '플레이어'
   private ws: WebSocket | null = null
+  private url = ''
 
   constructor(private cb: OnlineCallbacks) {}
 
   get active(): boolean {
     return this.phase !== 'idle'
+  }
+
+  get connected(): boolean {
+    return this.ws !== null && this.ws.readyState === WebSocket.OPEN
   }
 
   /** True while fighters must not move or shoot (server-driven). */
@@ -99,16 +116,34 @@ export class OnlineManager {
     })
   }
 
+  /** Open (or reuse) a lobby connection for browsing rooms. */
+  async browse(url: string) {
+    this.url = url
+    await this.ensure()
+    this.list()
+  }
+
+  private async ensure() {
+    if (this.connected) return
+    await this.connect(this.url)
+  }
+
+  list() {
+    if (this.connected && this.phase === 'idle') this.send({ t: 'list' })
+  }
+
   async create(url: string, teamSize: number, mapId: string) {
-    await this.connect(url)
+    this.url = url
+    await this.ensure()
     this.phase = 'waiting'
-    this.send({ t: 'create', teamSize, mapId })
+    this.send({ t: 'create', teamSize, mapId, nick: this.nick })
   }
 
   async join(url: string, code: string) {
-    await this.connect(url)
+    this.url = url
+    await this.ensure()
     this.phase = 'waiting'
-    this.send({ t: 'join', code })
+    this.send({ t: 'join', code, nick: this.nick })
   }
 
   ready() {
@@ -151,6 +186,9 @@ export class OnlineManager {
       return
     }
     switch (msg.t) {
+      case 'roomList':
+        this.cb.onRoomList((msg.rooms as RoomSummary[]) ?? [])
+        break
       case 'created':
         this.code = String(msg.code)
         this.cb.onCreated(this.code)

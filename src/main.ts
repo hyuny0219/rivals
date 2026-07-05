@@ -59,6 +59,14 @@ const onlineStatusText = document.querySelector<HTMLSpanElement>('#online-status
 const onlineGoBtn = document.querySelector<HTMLButtonElement>('#online-go-btn')!
 const onlineCancelBtn = document.querySelector<HTMLButtonElement>('#online-cancel-btn')!
 const loadoutPanel = document.querySelector<HTMLDivElement>('#loadout-panel')!
+const nickGate = document.querySelector<HTMLDivElement>('#nick-gate')!
+const nickInput = document.querySelector<HTMLInputElement>('#nick-input')!
+const nickEnterBtn = document.querySelector<HTMLButtonElement>('#nick-enter-btn')!
+const nickChangeBtn = document.querySelector<HTMLButtonElement>('#nick-change-btn')!
+const lobbyEl = document.querySelector<HTMLDivElement>('#lobby')!
+const lobbyNick = document.querySelector<HTMLElement>('#lobby-nick')!
+const roomsList = document.querySelector<HTMLDivElement>('#rooms-list')!
+const roomsRefreshBtn = document.querySelector<HTMLButtonElement>('#rooms-refresh-btn')!
 
 const touchMode = isTouchDevice()
 if (touchMode) document.body.classList.add('touch')
@@ -502,8 +510,9 @@ function setupRoster(info: RosterInfo) {
       continue
     }
     const r = remotePool[remoteIdx++]
-    r.setAppearance(p.id.toUpperCase(), p.team, p.team === onlineTeam ? ALLY_COLOR : ENEMY_COLOR, p.team === onlineTeam)
-    onlineEntities.set(p.id, { team: p.team, hp: MAX_HP, spawnIdx, name: p.id.toUpperCase(), remote: r })
+    const nick = p.nick ?? p.id.toUpperCase()
+    r.setAppearance(nick, p.team, p.team === onlineTeam ? ALLY_COLOR : ENEMY_COLOR, p.team === onlineTeam)
+    onlineEntities.set(p.id, { team: p.team, hp: MAX_HP, spawnIdx, name: nick, remote: r })
     idByEntity.set(r, p.id)
   }
   for (const b of info.bots) {
@@ -620,6 +629,8 @@ function endOnlineCleanup() {
   aliveRow.classList.add('hidden')
   onlineStatus.classList.add('hidden')
   onlineGoBtn.classList.add('hidden')
+  lobbyEl.classList.remove('hidden') // back to the room browser
+  refreshRooms()
   if (document.pointerLockElement === canvas) document.exitPointerLock()
   else if (playing) setPlaying(false)
 }
@@ -629,7 +640,7 @@ function renderLobby(info: LobbyInfo) {
   const label = (team: number) =>
     info.players
       .filter((p) => p.team === team)
-      .map((p) => `${p.id === info.you ? 'YOU' : p.id.toUpperCase()}${p.id === info.hostId ? '👑' : ''}${p.ready ? ' ✓' : ''}`)
+      .map((p) => `${p.id === info.you ? `${p.nick}(나)` : p.nick}${p.id === info.hostId ? '👑' : ''}${p.ready ? ' ✓' : ''}`)
       .join(', ') || '—'
   const me = info.players.find((p) => p.id === info.you)
   setOnlineStatus(
@@ -640,8 +651,14 @@ function renderLobby(info: LobbyInfo) {
 }
 
 const online = new OnlineManager({
-  onCreated: (code) => setOnlineStatus(`방 코드: <b>${code}</b> — 참가자 대기 중…`, true),
-  onLobby: renderLobby,
+  onCreated: (code) => {
+    lobbyEl.classList.add('hidden') // hide the browser while in a room
+    setOnlineStatus(`방 코드: <b>${code}</b> — 참가자 대기 중…`, true)
+  },
+  onLobby: (info) => {
+    lobbyEl.classList.add('hidden')
+    renderLobby(info)
+  },
   onRoster: setupRoster,
   onRound: handleOnlineRound,
   onHp: (id, hp) => {
@@ -690,6 +707,7 @@ const online = new OnlineManager({
     // visual-only: damage authority stays with the thrower's claims
     projectiles.throwGrenade(new THREE.Vector3(...origin), new THREE.Vector3(...dir), WEAPONS.grenade.range, 0)
   },
+  onRoomList: (rooms) => renderRooms(rooms),
   onError: (reason) => {
     setOnlineStatus(reason === 'no-room' ? '방을 찾을 수 없습니다 (코드/정원 확인)' : '서버 오류가 발생했습니다')
   },
@@ -733,7 +751,97 @@ onlineCancelBtn.addEventListener('click', () => {
   teardownRoster()
   onlineStatus.classList.add('hidden')
   onlineGoBtn.classList.add('hidden')
+  lobbyEl.classList.remove('hidden')
+  refreshRooms() // reconnect + re-list after leaving a room
 })
+
+// ---------- nickname gate + room browser ----------
+const NICK_KEY = 'rifle-gg-nick'
+let roomPollTimer = 0
+
+function renderRooms(rooms: import('./net/online').RoomSummary[]) {
+  if (rooms.length === 0) {
+    roomsList.innerHTML = '<div class="rooms-empty">열린 방이 없습니다 · 방을 만들어보세요</div>'
+    return
+  }
+  roomsList.innerHTML = ''
+  for (const r of rooms) {
+    const el = document.createElement('div')
+    el.className = 'room-item'
+    const mapName = mapById(r.mapId).name
+    el.innerHTML =
+      `<span class="r-host">${escapeHtml(r.host)}</span>` +
+      `<span class="r-meta">${r.teamSize}v${r.teamSize} · ${mapName} · ${r.count}/${r.cap}</span>` +
+      `<button class="r-join">참가</button>`
+    el.querySelector('.r-join')!.addEventListener('click', () => joinRoom(r.code))
+    roomsList.appendChild(el)
+  }
+}
+
+function escapeHtml(s: string): string {
+  return s.replace(/[<>&]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' })[c]!)
+}
+
+function refreshRooms() {
+  if (online.active) return
+  online.browse(defaultServerUrl()).catch(() => {
+    roomsList.innerHTML = '<div class="rooms-empty">서버에 연결할 수 없습니다 (무료 서버는 첫 접속에 ~30초)</div>'
+  })
+}
+
+async function joinRoom(code: string) {
+  if (online.active) return
+  audio.ensure()
+  setOnlineStatus('입장 중…')
+  try {
+    await online.join(defaultServerUrl(), code)
+  } catch {
+    setOnlineStatus('입장에 실패했습니다')
+  }
+}
+
+function enterLobby(nick: string) {
+  const clean = nick.trim().slice(0, 12) || '플레이어'
+  online.nick = clean
+  try {
+    localStorage.setItem(NICK_KEY, clean)
+  } catch {
+    /* private mode */
+  }
+  lobbyNick.textContent = clean
+  nickGate.classList.add('hidden')
+  lobbyEl.classList.remove('hidden')
+  refreshRooms()
+  // poll the room list while the lobby is on screen and we're not in a room
+  window.clearInterval(roomPollTimer)
+  roomPollTimer = window.setInterval(() => {
+    if (!lobbyEl.classList.contains('hidden') && !online.active) online.list()
+  }, 4000)
+}
+
+nickEnterBtn.addEventListener('click', () => enterLobby(nickInput.value))
+nickInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') enterLobby(nickInput.value)
+})
+nickChangeBtn.addEventListener('click', () => {
+  lobbyEl.classList.add('hidden')
+  nickGate.classList.remove('hidden')
+  nickInput.focus()
+})
+roomsRefreshBtn.addEventListener('click', refreshRooms)
+
+// returning players skip the gate; prefill the input either way
+const savedNick = (() => {
+  try {
+    return localStorage.getItem(NICK_KEY) ?? ''
+  } catch {
+    return ''
+  }
+})()
+if (savedNick) {
+  nickInput.value = savedNick
+  enterLobby(savedNick)
+}
 
 // ---------- scoreboard (hold Tab on desktop, tap the pips on touch) ----------
 interface SbRow {
@@ -1398,6 +1506,10 @@ requestAnimationFrame(frame)
   /** Load a map's structure for inspection without starting a match (tests). */
   previewMap(id: string) {
     if (!online.active && !duel.active) loadMap(id)
+  },
+  /** Pass the nickname gate straight into the lobby (tests). */
+  enter(nick = 'TESTER') {
+    enterLobby(nick)
   },
   get polish() {
     return {

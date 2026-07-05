@@ -72,6 +72,21 @@ function sanitizeVec3(v) {
   return out.every((n) => n !== null) ? out : null
 }
 
+/** Trim a nickname to a safe display string. */
+function cleanNick(nick) {
+  const s = String(nick ?? '').replace(/[<>&]/g, '').trim().slice(0, 12)
+  return s || '플레이어'
+}
+
+function roomList() {
+  const rooms_ = []
+  for (const room of rooms.values()) {
+    const entry = room.listing()
+    if (entry) rooms_.push(entry)
+  }
+  return rooms_.slice(0, 30)
+}
+
 class Room {
   constructor(code, teamSize, mapId) {
     this.code = code
@@ -105,7 +120,7 @@ class Room {
     }
   }
 
-  addPlayer(ws) {
+  addPlayer(ws, nick) {
     const id = `p${this.nextPlayerNum++}`
     const t0 = this.players.filter((p) => p.team === 0).length
     const t1 = this.players.filter((p) => p.team === 1).length
@@ -115,12 +130,29 @@ class Room {
     else if (t1 < t0) team = 1
     else if (t0 < t1) team = 0
     else team = 0
-    const player = { id, ws, team, ready: false }
+    const player = { id, ws, team, ready: false, nick: cleanNick(nick) }
     this.players.push(player)
     ws.room = this
     ws.playerId = id
     this.sendLobby()
     return player
+  }
+
+  get hostNick() {
+    return this.players[0]?.nick ?? '방장'
+  }
+
+  /** Public listing entry, or null if the room can't be joined. */
+  listing() {
+    if (this.state !== 'waiting' || this.players.length >= this.capacity) return null
+    return {
+      code: this.code,
+      host: this.hostNick,
+      count: this.players.length,
+      cap: this.capacity,
+      teamSize: this.teamSize,
+      mapId: this.mapId,
+    }
   }
 
   sendLobby() {
@@ -132,7 +164,7 @@ class Room {
         mapId: this.mapId,
         hostId: this.hostId,
         you: p.id,
-        players: this.players.map((q) => ({ id: q.id, team: q.team, ready: q.ready })),
+        players: this.players.map((q) => ({ id: q.id, team: q.team, ready: q.ready, nick: q.nick })),
       })
     }
   }
@@ -160,7 +192,7 @@ class Room {
         mapId: this.mapId,
         hostId: this.hostId,
         you: p.id,
-        players: this.players.map((q) => ({ id: q.id, team: q.team })),
+        players: this.players.map((q) => ({ id: q.id, team: q.team, nick: q.nick })),
         bots: this.bots.map((b) => ({ id: b.id, team: b.team })),
       })
     }
@@ -307,13 +339,18 @@ wss.on('connection', (ws) => {
     if (room) room.touch()
 
     switch (msg.t) {
+      case 'list': {
+        if (room) return
+        send(ws, { t: 'roomList', rooms: roomList() })
+        break
+      }
       case 'create': {
         if (room) return
         const code = makeCode()
         if (!code) return send(ws, { t: 'error', reason: 'busy' })
         const newRoom = new Room(code, msg.teamSize, String(msg.mapId ?? 'foundry'))
         rooms.set(code, newRoom)
-        newRoom.addPlayer(ws)
+        newRoom.addPlayer(ws, msg.nick)
         send(ws, { t: 'created', code })
         break
       }
@@ -323,7 +360,7 @@ wss.on('connection', (ws) => {
         if (!target || target.state !== 'waiting' || target.players.length >= target.capacity) {
           return send(ws, { t: 'error', reason: 'no-room' })
         }
-        target.addPlayer(ws)
+        target.addPlayer(ws, msg.nick)
         target.touch()
         break
       }
