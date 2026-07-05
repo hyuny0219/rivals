@@ -22,7 +22,6 @@ import { WEAPONS } from './combat/weapons'
 const canvas = document.querySelector<HTMLCanvasElement>('#game')!
 const menu = document.querySelector<HTMLDivElement>('#menu')!
 const hud = document.querySelector<HTMLDivElement>('#hud')!
-const playBtn = document.querySelector<HTMLButtonElement>('#play-btn')!
 const dashFill = document.querySelector<HTMLSpanElement>('#dash-fill')!
 const hpFill = document.querySelector<HTMLSpanElement>('#hp-fill')!
 const hpNum = document.querySelector<HTMLSpanElement>('#hp-num')!
@@ -34,7 +33,6 @@ const touchSlotEls = [...document.querySelectorAll<HTMLButtonElement>('.slot-btn
 const crosshair = document.querySelector<HTMLDivElement>('#crosshair')!
 const hitmarker = document.querySelector<HTMLDivElement>('#hitmarker')!
 const killfeed = document.querySelector<HTMLDivElement>('#killfeed')!
-const duelBtn = document.querySelector<HTMLButtonElement>('#duel-btn')!
 const scoreWrap = document.querySelector<HTMLDivElement>('#score-wrap')!
 const scorePlayer = document.querySelector<HTMLSpanElement>('#score-player')!
 const scoreBot = document.querySelector<HTMLSpanElement>('#score-bot')!
@@ -67,6 +65,11 @@ const lobbyEl = document.querySelector<HTMLDivElement>('#lobby')!
 const lobbyNick = document.querySelector<HTMLElement>('#lobby-nick')!
 const roomsList = document.querySelector<HTMLDivElement>('#rooms-list')!
 const roomsRefreshBtn = document.querySelector<HTMLButtonElement>('#rooms-refresh-btn')!
+const createPanel = document.querySelector<HTMLDivElement>('#create-panel')!
+const createConfirmBtn = document.querySelector<HTMLButtonElement>('#create-confirm-btn')!
+const createCancelBtn = document.querySelector<HTMLButtonElement>('#create-cancel-btn')!
+const fillBotsBtn = document.querySelector<HTMLButtonElement>('#fill-bots-btn')!
+const botDiffRow = document.querySelector<HTMLDivElement>('#bot-diff-row')!
 
 const touchMode = isTouchDevice()
 if (touchMode) document.body.classList.add('touch')
@@ -346,6 +349,7 @@ let selectedDifficulty: Difficulty = 'normal'
 let selectedPrimary = 'ar'
 let selectedSecondary = 'pistol'
 let selectedMap = 'random'
+let fillBots = true // create-room: fill empty slots with bots
 let bannerTimeout = 0
 
 function showBanner(text: string, sub = '', seconds = 1) {
@@ -441,6 +445,7 @@ interface OnlineEntity {
 let onlineYouId = ''
 let onlineTeam = 0
 let onlineTeamSize = 1
+let onlineDifficulty: Difficulty = 'normal'
 let onlineIsHost = false
 let mySpawnIdx = 0
 let onlineMyHp = MAX_HP
@@ -494,6 +499,7 @@ function setupRoster(info: RosterInfo) {
   loadMap(info.mapId) // server-chosen arena, identical for everyone
   onlineYouId = info.you
   onlineTeamSize = info.teamSize
+  onlineDifficulty = (info.difficulty as Difficulty) ?? 'normal'
   onlineIsHost = info.you === info.hostId
   onlineTeam = info.players.find((p) => p.id === info.you)?.team ?? 0
   idByEntity.set(playerTarget, info.you)
@@ -577,7 +583,7 @@ function handleOnlineRound(info: RoundInfo) {
       const sp = map.teamSpawns[e.team][e.spawnIdx]
       if (e.remote) e.remote.activate(sp.position, sp.yaw)
       if (e.bot) {
-        e.bot.setDifficulty('normal')
+        e.bot.setDifficulty(onlineDifficulty)
         e.bot.reset(sp.position.clone(), sp.yaw)
         e.bot.serverControlledHp = true
       }
@@ -643,8 +649,9 @@ function renderLobby(info: LobbyInfo) {
       .map((p) => `${p.id === info.you ? `${p.nick}(나)` : p.nick}${p.id === info.hostId ? '👑' : ''}${p.ready ? ' ✓' : ''}`)
       .join(', ') || '—'
   const me = info.players.find((p) => p.id === info.you)
+  const fillNote = info.fillBots === false ? '봇 없음 (정원이 차면 시작)' : '빈자리는 봇'
   setOnlineStatus(
-    `방 <b>${info.code}</b> (${info.teamSize}v${info.teamSize}) · 맵: ${mapById(info.mapId).name} · ${info.players.length}/${cap}명 · 빈자리는 봇<br/>` +
+    `방 <b>${info.code}</b> (${info.teamSize}v${info.teamSize}) · 맵: ${mapById(info.mapId).name} · ${info.players.length}/${cap}명 · ${fillNote}<br/>` +
       `<span style="color:#57d38c">팀 A: ${label(0)}</span> · <span style="color:#ff5a3c">팀 B: ${label(1)}</span>`,
     !(me?.ready ?? false),
   )
@@ -717,12 +724,35 @@ const online = new OnlineManager({
   },
 })
 
-onlineCreateBtn.addEventListener('click', async () => {
+function setFillBots(on: boolean) {
+  fillBots = on
+  fillBotsBtn.classList.toggle('on', on)
+  fillBotsBtn.textContent = on ? '봇으로 채우기' : '사람만 (봇 없음)'
+  botDiffRow.classList.toggle('hidden', !on)
+}
+
+// 방 만들기 opens the config panel; the actual create happens on 만들기
+onlineCreateBtn.addEventListener('click', () => {
   if (online.active) return
+  audio.ensure()
+  lobbyEl.classList.add('hidden')
+  createPanel.classList.remove('hidden')
+})
+
+fillBotsBtn.addEventListener('click', () => setFillBots(!fillBots))
+
+createCancelBtn.addEventListener('click', () => {
+  createPanel.classList.add('hidden')
+  lobbyEl.classList.remove('hidden')
+})
+
+createConfirmBtn.addEventListener('click', async () => {
+  if (online.active) return
+  createPanel.classList.add('hidden')
   audio.ensure()
   setOnlineStatus('서버 연결 중…')
   try {
-    await online.create(defaultServerUrl(), teamSize, resolveMapId())
+    await online.create(defaultServerUrl(), teamSize, resolveMapId(), fillBots, selectedDifficulty)
   } catch {
     setOnlineStatus('서버에 연결할 수 없습니다 (잠시 후 다시 시도해주세요)')
   }
@@ -769,9 +799,10 @@ function renderRooms(rooms: import('./net/online').RoomSummary[]) {
     const el = document.createElement('div')
     el.className = 'room-item'
     const mapName = mapById(r.mapId).name
+    const botTag = r.fillBots === false ? ' · 봇 없음' : ' · 봇'
     el.innerHTML =
       `<span class="r-host">${escapeHtml(r.host)}</span>` +
-      `<span class="r-meta">${r.teamSize}v${r.teamSize} · ${mapName} · ${r.count}/${r.cap}</span>` +
+      `<span class="r-meta">${r.teamSize}v${r.teamSize} · ${mapName} · ${r.count}/${r.cap}${botTag}</span>` +
       `<button class="r-join">참가</button>`
     el.querySelector('.r-join')!.addEventListener('click', () => joinRoom(r.code))
     roomsList.appendChild(el)
@@ -1132,18 +1163,6 @@ async function startGame() {
     /* ignore; user can click again */
   }
 }
-
-playBtn.addEventListener('click', () => {
-  if (online.active) return // cancel the online room first
-  pendingDuel = false
-  loadMap('foundry') // practice range is always Foundry (fixed dummy layout)
-  void startGame()
-})
-duelBtn.addEventListener('click', () => {
-  if (online.active) return
-  pendingDuel = true
-  void startGame()
-})
 
 // menu option toggles (difficulty / loadout)
 function wireToggleGroup(selector: string, onPick: (id: string) => void) {
@@ -1541,6 +1560,13 @@ requestAnimationFrame(frame)
       pendingDuel = false
       beginDuel()
     }
+  },
+  /** Enter the practice range (dummies, no rounds) — test helper. */
+  startPractice() {
+    if (online.active) return
+    pendingDuel = false
+    loadMap('foundry')
+    void startGame()
   },
   spawnAt(x: number, y: number, z: number, yaw: number) {
     player.spawn(new THREE.Vector3(x, y, z), yaw)

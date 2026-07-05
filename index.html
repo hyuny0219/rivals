@@ -127,11 +127,6 @@
             <button id="nick-change-btn">닉네임 변경</button>
           </div>
 
-          <div id="mode-row">
-            <button id="play-btn">연습장</button>
-            <button id="duel-btn">봇 대전</button>
-          </div>
-
           <div id="rooms-header">
             <span class="row-label">대기방 목록</span>
             <button id="rooms-refresh-btn">새로고침</button>
@@ -144,31 +139,6 @@
             <input id="online-code" placeholder="코드" maxlength="4" autocomplete="off" spellcheck="false" />
             <button id="online-join-btn">참가</button>
           </div>
-
-        <div id="difficulty-row">
-          <span class="row-label">봇 난이도</span>
-          <button class="diff-btn" data-diff="easy">쉬움</button>
-          <button class="diff-btn active" data-diff="normal">보통</button>
-          <button class="diff-btn" data-diff="hard">어려움</button>
-        </div>
-
-        <div id="teamsize-row">
-          <span class="row-label">팀 규모</span>
-          <button class="size-btn active" data-id="1">1v1</button>
-          <button class="size-btn" data-id="2">2v2</button>
-          <button class="size-btn" data-id="3">3v3</button>
-          <button class="size-btn" data-id="4">4v4</button>
-        </div>
-
-        <div id="map-row">
-          <span class="row-label">맵</span>
-          <button class="map-btn active" data-id="random">랜덤</button>
-          <button class="map-btn" data-id="foundry">파운드리</button>
-          <button class="map-btn" data-id="sandstorm">사막</button>
-          <button class="map-btn" data-id="neon">네온</button>
-          <button class="map-btn" data-id="frost">설원</button>
-          <button class="map-btn" data-id="jungle">정글</button>
-        </div>
 
         <details id="settings-panel">
           <summary>설정</summary>
@@ -206,6 +176,41 @@
           <span id="online-status-text"></span>
           <button id="online-go-btn" class="hidden">클릭하여 시작</button>
           <button id="online-cancel-btn">취소</button>
+        </div>
+
+        <!-- create-room config (shown from the lobby's 방 만들기) -->
+        <div id="create-panel" class="hidden">
+          <h3>방 만들기</h3>
+          <div class="create-row">
+            <span class="row-label">팀 규모</span>
+            <button class="size-btn active" data-id="1">1v1</button>
+            <button class="size-btn" data-id="2">2v2</button>
+            <button class="size-btn" data-id="3">3v3</button>
+            <button class="size-btn" data-id="4">4v4</button>
+          </div>
+          <div class="create-row">
+            <span class="row-label">맵</span>
+            <button class="map-btn active" data-id="random">랜덤</button>
+            <button class="map-btn" data-id="foundry">파운드리</button>
+            <button class="map-btn" data-id="sandstorm">사막</button>
+            <button class="map-btn" data-id="neon">네온</button>
+            <button class="map-btn" data-id="frost">설원</button>
+            <button class="map-btn" data-id="jungle">정글</button>
+          </div>
+          <div class="create-row">
+            <span class="row-label">빈자리 봇</span>
+            <button id="fill-bots-btn" class="toggle-btn on">봇으로 채우기</button>
+          </div>
+          <div class="create-row" id="bot-diff-row">
+            <span class="row-label">봇 난이도</span>
+            <button class="diff-btn" data-diff="easy">쉬움</button>
+            <button class="diff-btn active" data-diff="normal">보통</button>
+            <button class="diff-btn" data-diff="hard">어려움</button>
+          </div>
+          <div class="create-actions">
+            <button id="create-confirm-btn">만들기</button>
+            <button id="create-cancel-btn">취소</button>
+          </div>
         </div>
       </div>
     </div>

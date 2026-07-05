@@ -22,12 +22,14 @@ export interface RoomSummary {
   cap: number
   teamSize: number
   mapId: string
+  fillBots?: boolean
 }
 
 export interface LobbyInfo {
   code: string
   teamSize: number
   mapId: string
+  fillBots?: boolean
   hostId: string
   you: string
   players: { id: string; team: number; ready: boolean; nick: string }[]
@@ -36,6 +38,7 @@ export interface LobbyInfo {
 export interface RosterInfo {
   teamSize: number
   mapId: string
+  difficulty?: string
   hostId: string
   you: string
   players: RosterEntry[]
@@ -132,11 +135,11 @@ export class OnlineManager {
     if (this.connected && this.phase === 'idle') this.send({ t: 'list' })
   }
 
-  async create(url: string, teamSize: number, mapId: string) {
+  async create(url: string, teamSize: number, mapId: string, fillBots = true, difficulty = 'normal') {
     this.url = url
     await this.ensure()
     this.phase = 'waiting'
-    this.send({ t: 'create', teamSize, mapId, nick: this.nick })
+    this.send({ t: 'create', teamSize, mapId, nick: this.nick, fillBots, difficulty })
   }
 
   async join(url: string, code: string) {

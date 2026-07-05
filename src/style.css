@@ -215,43 +215,6 @@ body {
   padding: 14px;
 }
 
-#mode-row {
-  margin-top: 22px;
-  display: flex;
-  gap: 14px;
-  justify-content: center;
-}
-
-#play-btn,
-#duel-btn {
-  padding: 14px 42px;
-  font-size: 19px;
-  font-weight: 700;
-  color: #fff;
-  border: none;
-  border-radius: 8px;
-  cursor: pointer;
-  transition: transform 0.1s ease, background 0.15s ease;
-}
-
-#play-btn {
-  background: #3e8fb0;
-}
-
-#play-btn:hover {
-  background: #55a5c5;
-  transform: scale(1.04);
-}
-
-#duel-btn {
-  background: #ff5a3c;
-}
-
-#duel-btn:hover {
-  background: #ff7057;
-  transform: scale(1.04);
-}
-
 #online-row {
   margin-top: 18px;
   display: flex;
@@ -315,6 +278,90 @@ body {
   display: none;
 }
 
+/* create-room config panel */
+#create-panel {
+  margin-top: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-width: 460px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+#create-panel.hidden {
+  display: none;
+}
+
+#create-panel h3 {
+  margin: 0 0 4px;
+  font-size: 17px;
+  color: #eef2f7;
+}
+
+.create-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.create-row.hidden {
+  display: none;
+}
+
+.toggle-btn {
+  padding: 7px 16px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #cdd8e4;
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.12s ease;
+}
+
+.toggle-btn.on {
+  background: #57d38c;
+  border-color: #57d38c;
+  color: #10241a;
+}
+
+.create-actions {
+  margin-top: 6px;
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+}
+
+#create-confirm-btn {
+  padding: 10px 30px;
+  font-size: 15px;
+  font-weight: 700;
+  color: #fff;
+  background: #ff5a3c;
+  border: none;
+  border-radius: 7px;
+  cursor: pointer;
+}
+
+#create-confirm-btn:hover {
+  background: #ff7057;
+}
+
+#create-cancel-btn {
+  padding: 10px 22px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #cdd8e4;
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 7px;
+  cursor: pointer;
+}
+
 #online-status b {
   color: #ff5a3c;
   letter-spacing: 3px;
@@ -323,16 +370,6 @@ body {
 
 #online-go-btn.hidden {
   display: none;
-}
-
-#teamsize-row,
-#map-row {
-  margin-top: 14px;
-  display: flex;
-  gap: 8px;
-  align-items: center;
-  justify-content: center;
-  flex-wrap: wrap;
 }
 
 .size-btn,
@@ -393,7 +430,6 @@ body {
   letter-spacing: 0;
 }
 
-#difficulty-row,
 .loadout-group {
   margin-top: 18px;
   display: flex;
