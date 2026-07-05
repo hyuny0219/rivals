@@ -64,7 +64,7 @@ export const WEAPONS: Record<string, WeaponDef> = {
     spread: 0.045,
     bloom: 0.002,
     kick: 0.03,
-    range: 40,
+    range: 32, // balance: reinforce its close-range role (was 40)
   },
   sniper: {
     ...base,
@@ -92,8 +92,9 @@ export const WEAPONS: Record<string, WeaponDef> = {
     kind: 'hitscan',
     auto: false,
     rpm: 330,
-    damage: 30,
-    headshotMult: 1.8,
+    // balance: strong precise backup, but shouldn't rival a primary — was 30 / 1.8
+    damage: 27,
+    headshotMult: 1.6,
     magazine: 12,
     reloadTime: 1.5,
     spread: 0.009,

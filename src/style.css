@@ -605,6 +605,57 @@ body {
   display: none;
 }
 
+/* sniper scope: dark vignette + full reticle + center dot (shown while zoomed) */
+#scope {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 7;
+  background: radial-gradient(
+    circle at 50% 50%,
+    transparent 30%,
+    rgba(0, 0, 0, 0.55) 37%,
+    rgba(0, 0, 0, 0.85) 46%
+  );
+}
+
+#scope.hidden {
+  display: none;
+}
+
+#scope .scope-v,
+#scope .scope-h {
+  position: absolute;
+  background: rgba(0, 0, 0, 0.85);
+}
+
+#scope .scope-v {
+  left: 50%;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  transform: translateX(-0.5px);
+}
+
+#scope .scope-h {
+  top: 50%;
+  left: 0;
+  right: 0;
+  height: 1px;
+  transform: translateY(-0.5px);
+}
+
+#scope .scope-dot {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 5px;
+  height: 5px;
+  margin: -2.5px 0 0 -2.5px;
+  border-radius: 50%;
+  background: #ff5a3c;
+}
+
 #crosshair {
   position: absolute;
   left: 50%;
