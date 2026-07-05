@@ -1,0 +1,138 @@
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html,
+body {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: #0e1420;
+  font-family: 'Segoe UI', 'Apple SD Gothic Neo', sans-serif;
+  user-select: none;
+}
+
+#game {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+/* ---------- menu overlay ---------- */
+#menu {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(10, 14, 22, 0.82);
+  backdrop-filter: blur(6px);
+  z-index: 10;
+}
+
+#menu.hidden {
+  display: none;
+}
+
+.menu-inner {
+  text-align: center;
+  color: #eef2f7;
+}
+
+.menu-inner h1 {
+  font-size: 72px;
+  font-weight: 900;
+  letter-spacing: 4px;
+  font-style: italic;
+}
+
+.menu-inner h1 span {
+  color: #ff5a3c;
+}
+
+.tagline {
+  margin-top: 4px;
+  color: #9fb0c3;
+  letter-spacing: 2px;
+}
+
+#play-btn {
+  margin-top: 36px;
+  padding: 14px 56px;
+  font-size: 20px;
+  font-weight: 700;
+  color: #fff;
+  background: #ff5a3c;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: transform 0.1s ease, background 0.15s ease;
+}
+
+#play-btn:hover {
+  background: #ff7057;
+  transform: scale(1.04);
+}
+
+.controls {
+  margin-top: 28px;
+  color: #8494a8;
+  font-size: 14px;
+}
+
+.controls b {
+  color: #cdd8e4;
+}
+
+/* ---------- HUD ---------- */
+#hud {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 5;
+}
+
+#hud.hidden {
+  display: none;
+}
+
+#crosshair {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 6px;
+  height: 6px;
+  margin: -3px 0 0 -3px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 0 3px rgba(0, 0, 0, 0.8);
+}
+
+#dash-indicator {
+  position: absolute;
+  left: 24px;
+  bottom: 24px;
+  width: 140px;
+}
+
+#dash-indicator label {
+  display: block;
+  margin-top: 6px;
+  color: #cdd8e4;
+  font-size: 12px;
+  letter-spacing: 1px;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
+}
+
+#dash-fill {
+  display: block;
+  height: 8px;
+  border-radius: 4px;
+  background: #ff5a3c;
+  width: 100%;
+  transition: width 0.05s linear;
+}
