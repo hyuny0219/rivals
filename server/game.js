@@ -234,6 +234,7 @@ class Room {
         scoreEnemy: this.score[p.team ^ 1],
         hps: this.hpSnapshot(),
         ...('winner' in extra ? { youWon: extra.winner === p.team } : {}),
+        ...(extra.draw ? { draw: true } : {}),
       })
     }
   }
@@ -288,26 +289,25 @@ class Room {
   }
 
   checkWipe() {
-    for (const team of [0, 1]) {
-      const alive = [...this.entities.values()].filter((e) => e.team === team && e.hp > 0).length
-      if (alive === 0) {
-        this.endRound(team ^ 1)
-        return
-      }
-    }
+    const alive0 = [...this.entities.values()].filter((e) => e.team === 0 && e.hp > 0).length
+    const alive1 = [...this.entities.values()].filter((e) => e.team === 1 && e.hp > 0).length
+    if (alive0 > 0 && alive1 > 0) return
+    if (alive0 === 0 && alive1 === 0) this.endRound(-1) // mutual wipe → draw
+    else this.endRound(alive0 === 0 ? 1 : 0)
   }
 
   endRound(winner) {
     if (this.destroyed || this.state !== 'combat') return
     clearTimeout(this.timer)
-    this.score[winner]++
-    if (this.score[winner] >= WIN_SCORE) {
+    const draw = winner !== 0 && winner !== 1
+    if (!draw) this.score[winner]++
+    if (!draw && this.score[winner] >= WIN_SCORE) {
       this.state = 'matchEnd'
       this.sendPhase({ winner })
       this.timer = setTimeout(() => this.destroy('match-over'), MATCH_END_MS)
     } else {
       this.state = 'roundEnd'
-      this.sendPhase({ winner })
+      this.sendPhase(draw ? { draw: true } : { winner })
       this.timer = setTimeout(() => this.startRound(), ROUND_END_MS)
     }
   }

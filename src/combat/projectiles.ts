@@ -128,11 +128,13 @@ export class ProjectileManager {
       if (target !== g.source && isFriendly(g.source?.team, target)) continue
       const dist = target.center.distanceTo(at)
       if (dist > g.radius) continue
-      // occlusion: static world geometry blocks the blast (other entities don't)
+      // occlusion: static world geometry blocks the blast (other entities don't).
+      // ignore a hit at ~0 distance: that means the grenade center rests inside/on
+      // a collider (corner/wedge), which must not zero out its own blast
       if (dist > 0.01) {
         this.losDir.copy(target.center).sub(at).divideScalar(dist)
         const hit = this.world.raycast(at, this.losDir, dist)
-        if (hit && !hit.hitbox) continue
+        if (hit && !hit.hitbox && hit.distance > 0.05) continue
       }
       const damage = Math.round(g.maxDamage * (1 - dist / g.radius))
       if (damage <= 0) continue

@@ -256,7 +256,10 @@ export class Bot implements Damageable {
       this.combatMove(dt, dist, target)
       this.aimAndFire(dt)
     } else {
-      this.sawPlayerFor = 0
+      // decay rather than hard-reset: a target micro-peeking behind cover (LOS
+      // toggling each step) shouldn't keep the bot from ever paying off its
+      // reaction time and firing
+      this.sawPlayerFor = Math.max(0, this.sawPlayerFor - dt * 2)
       this.burstLeft = 0
       this.navigateToward(dt, target)
     }

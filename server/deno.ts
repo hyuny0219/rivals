@@ -17,10 +17,14 @@ startIdleSweep()
 
 const FS_ROOT = fromFileUrl(new URL('../dist', import.meta.url))
 
-async function serveClient(req: Request): Promise<Response> {
+const MAX_MSG_BYTES = 4096 // mirror the Node ws maxPayload
+
+async function serveClient(req: Request, pathname: string): Promise<Response> {
   const res = await serveDir(req, { fsRoot: FS_ROOT, quiet: true })
   if (res.status !== 404) return res
-  // SPA fallback → index.html so the app still loads on unknown paths
+  // a missing *asset* (has a file extension) is a real 404 — don't mask a
+  // broken deploy as HTML; only unknown routes fall back to index.html
+  if (/\.[a-z0-9]+$/i.test(pathname)) return res
   try {
     const html = await Deno.readTextFile(`${FS_ROOT}/index.html`)
     return new Response(html, { headers: { 'content-type': 'text/html; charset=utf-8' } })
@@ -34,7 +38,12 @@ Deno.serve((req: Request) => {
   if (url.pathname === '/healthz') return new Response('ok\n')
 
   if (req.headers.get('upgrade')?.toLowerCase() === 'websocket') {
-    const { socket, response } = Deno.upgradeWebSocket(req)
+    let socket: WebSocket, response: Response
+    try {
+      ;({ socket, response } = Deno.upgradeWebSocket(req))
+    } catch {
+      return new Response('invalid websocket upgrade', { status: 400 })
+    }
     // adapt the Deno socket to the conn interface game.js works with
     const conn = {
       room: null as unknown,
@@ -51,6 +60,8 @@ Deno.serve((req: Request) => {
       },
     }
     socket.onmessage = (e: MessageEvent) => {
+      // drop oversized/non-text frames (Node's ws enforces this via maxPayload)
+      if (typeof e.data !== 'string' || e.data.length > MAX_MSG_BYTES) return
       let msg: unknown
       try {
         msg = JSON.parse(e.data)
@@ -59,10 +70,11 @@ Deno.serve((req: Request) => {
       }
       handleMessage(conn, msg)
     }
+    // tear the room down on close only; a transient onerror is usually
+    // followed by onclose, and shouldn't end everyone's match on its own
     socket.onclose = () => handleClose(conn)
-    socket.onerror = () => handleClose(conn)
     return response
   }
 
-  return serveClient(req)
+  return serveClient(req, url.pathname)
 })

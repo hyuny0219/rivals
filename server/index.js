@@ -49,7 +49,12 @@ async function serveStatic(req, res) {
     res.writeHead(200, { 'content-type': MIME[extname(filePath)] ?? 'application/octet-stream' })
     res.end(data)
   } catch {
-    // fall back to index.html so the app still loads; 404 only if the build is missing
+    // a missing *asset* (has a file extension) is a real 404 — don't mask a
+    // broken deploy as HTML; only unknown routes fall back to index.html
+    if (/\.[a-z0-9]+$/i.test(pathname)) {
+      res.writeHead(404, { 'content-type': 'text/plain' })
+      return res.end('not found\n')
+    }
     try {
       const data = await readFile(join(CLIENT_DIR, 'index.html'))
       res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' })

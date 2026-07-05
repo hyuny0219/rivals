@@ -53,6 +53,7 @@ export interface RoundInfo {
   /** Server-authoritative HP per entity id. */
   hps: Record<string, number>
   youWon?: boolean
+  draw?: boolean
 }
 
 export interface OnlineCallbacks {
@@ -86,6 +87,7 @@ export class OnlineManager {
   private ws: WebSocket | null = null
   private url = ''
   private connectGen = 0 // bumped by leave() to abort an in-flight retry loop
+  private connecting: Promise<void> | null = null // shared in-flight connect
 
   constructor(private cb: OnlineCallbacks) {}
 
@@ -106,9 +108,27 @@ export class OnlineManager {
     return new Promise((resolve, reject) => {
       const ws = new WebSocket(url)
       this.ws = ws
+      // a cold dyno can accept TCP but stall the upgrade forever; time out so
+      // the retry loop advances instead of hanging in CONNECTING
+      const timer = setTimeout(() => {
+        if (ws.readyState !== WebSocket.OPEN) {
+          try {
+            ws.close()
+          } catch {
+            /* ignore */
+          }
+          reject(new Error('connect timeout'))
+        }
+      }, 8000)
       // ignore stale events if leave() replaced/cleared the socket meanwhile
-      ws.onopen = () => (this.ws === ws ? resolve() : reject(new Error('cancelled')))
-      ws.onerror = () => reject(new Error('connect failed'))
+      ws.onopen = () => {
+        clearTimeout(timer)
+        this.ws === ws ? resolve() : reject(new Error('cancelled'))
+      }
+      ws.onerror = () => {
+        clearTimeout(timer)
+        reject(new Error('connect failed'))
+      }
       ws.onmessage = (e) => {
         if (this.ws === ws) this.handle(String(e.data))
       }
@@ -130,9 +150,22 @@ export class OnlineManager {
     this.list()
   }
 
+  /** Connect if needed. Concurrent callers share one in-flight retry loop so
+   * impatient clicks during a cold start don't spawn dueling sockets. */
+  private ensure(onWaking?: (attempt: number, max: number) => void): Promise<void> {
+    if (this.connected) return Promise.resolve()
+    if (this.connecting) return this.connecting
+    const p = this.runConnect(onWaking)
+    this.connecting = p
+    // only clear if a newer connect hasn't replaced this one meanwhile
+    p.catch(() => {}).finally(() => {
+      if (this.connecting === p) this.connecting = null
+    })
+    return p
+  }
+
   /** Connect, retrying while a free-tier server cold-starts (~30-50s). */
-  private async ensure(onWaking?: (attempt: number, max: number) => void) {
-    if (this.connected) return
+  private async runConnect(onWaking?: (attempt: number, max: number) => void) {
     const gen = this.connectGen
     const MAX_ATTEMPTS = 8
     // nudge the sleeping dyno awake over HTTP (best effort, no-cors).
@@ -193,6 +226,7 @@ export class OnlineManager {
   leave() {
     this.phase = 'idle'
     this.connectGen++ // abort any in-flight connect/retry loop
+    this.connecting = null // let the next ensure() start a fresh connect
     const ws = this.ws
     this.ws = null
     ws?.close()
