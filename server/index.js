@@ -11,7 +11,7 @@ import { WebSocketServer } from 'ws'
 const PORT = Number(process.env.PORT) || 8081
 const WIN_SCORE = 5
 const COUNTDOWN_MS = 3000
-const FIRST_COUNTDOWN_MS = 8000 // round 1 includes the loadout pick
+const FIRST_COUNTDOWN_MS = 13000 // round 1 includes the 10s loadout pick
 const ROUND_END_MS = 2200
 const MATCH_END_MS = 4000
 const MAX_HP = 100

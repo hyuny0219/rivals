@@ -272,7 +272,7 @@ const duel = new DuelManager({
     bot.setDifficulty(selectedDifficulty)
     bot.reset(map.spawns[1].position.clone(), map.spawns[1].yaw)
     projectiles.clear()
-    if (round === 1) showLoadoutPanel(5) // pick window before the 3-2-1
+    if (round === 1) showLoadoutPanel(10) // pick window before the 3-2-1
   },
   onBanner: (text, sub, seconds) => {
     showBanner(text, sub, seconds)
@@ -355,10 +355,10 @@ function handleOnlineRound(info: RoundInfo) {
     remote.activate(map.spawns[onlineSide ^ 1].position, map.spawns[onlineSide ^ 1].yaw)
     scoreWrap.classList.remove('hidden')
     botHpWrap.classList.remove('hidden')
-    // round 1 opens with a 5s loadout window (server countdown is 8s);
+    // round 1 opens with a 10s loadout window (server countdown is 13s);
     // later rounds go straight into the local 3-2-1 display
-    const pickOffset = info.round === 1 ? 5000 : 0
-    if (info.round === 1) showLoadoutPanel(5)
+    const pickOffset = info.round === 1 ? 10000 : 0
+    if (info.round === 1) showLoadoutPanel(10)
     for (const [delay, label] of [
       [0, '3'],
       [1000, '2'],
