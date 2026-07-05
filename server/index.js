@@ -32,6 +32,7 @@ const DAMAGE_CAP = {
 const MAX_CLAIMS_PER_SECOND = 25 // per attacker entity
 
 const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
+const MAP_IDS = ['foundry', 'sandstorm', 'neon', 'frost', 'jungle']
 const rooms = new Map() // code -> Room
 
 function makeCode() {
@@ -72,9 +73,10 @@ function sanitizeVec3(v) {
 }
 
 class Room {
-  constructor(code, teamSize) {
+  constructor(code, teamSize, mapId) {
     this.code = code
     this.teamSize = Math.max(1, Math.min(4, Number(teamSize) || 1))
+    this.mapId = MAP_IDS.includes(mapId) ? mapId : 'foundry'
     this.capacity = this.teamSize * 2
     this.players = [] // {id, ws, team, ready}
     this.bots = [] // {id, team}
@@ -127,6 +129,7 @@ class Room {
         t: 'lobby',
         code: this.code,
         teamSize: this.teamSize,
+        mapId: this.mapId,
         hostId: this.hostId,
         you: p.id,
         players: this.players.map((q) => ({ id: q.id, team: q.team, ready: q.ready })),
@@ -154,6 +157,7 @@ class Room {
       send(p.ws, {
         t: 'roster',
         teamSize: this.teamSize,
+        mapId: this.mapId,
         hostId: this.hostId,
         you: p.id,
         players: this.players.map((q) => ({ id: q.id, team: q.team })),
@@ -307,7 +311,7 @@ wss.on('connection', (ws) => {
         if (room) return
         const code = makeCode()
         if (!code) return send(ws, { t: 'error', reason: 'busy' })
-        const newRoom = new Room(code, msg.teamSize)
+        const newRoom = new Room(code, msg.teamSize, String(msg.mapId ?? 'foundry'))
         rooms.set(code, newRoom)
         newRoom.addPlayer(ws)
         send(ws, { t: 'created', code })

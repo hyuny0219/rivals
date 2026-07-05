@@ -15,6 +15,7 @@ import { DuelManager } from './game/duel'
 import { AudioEngine } from './core/audio'
 import { loadSettings, saveSettings } from './core/settings'
 import { OnlineManager, defaultServerUrl, RoundInfo, RosterInfo, LobbyInfo } from './net/online'
+import { MAPS, mapById } from './world/maps'
 import { RemotePlayer } from './entities/remote'
 import { WEAPONS } from './combat/weapons'
 
@@ -99,8 +100,36 @@ scene.add(sun)
 
 // ---------- world / player ----------
 const physics = new PhysicsWorld()
-const map = buildMap(physics)
+let map = buildMap(physics, MAPS[0].theme)
 scene.add(map.group)
+let currentMapId = MAPS[0].id
+
+/** Swap the arena theme: rebuild visuals + colliders + environment. The
+ * collision layout is identical across maps, so bots/spawns are unaffected. */
+function loadMap(mapId: string) {
+  const def = mapById(mapId)
+  currentMapId = def.id
+  scene.remove(map.group)
+  map.group.traverse((o) => {
+    if (o instanceof THREE.Mesh) {
+      o.geometry.dispose()
+      ;(o.material as THREE.Material).dispose()
+    }
+  })
+  physics.clearColliders()
+  map = buildMap(physics, def.theme)
+  scene.add(map.group)
+
+  const t = def.theme
+  scene.background = new THREE.Color(t.sky)
+  scene.fog = new THREE.Fog(t.fog.color, t.fog.near, t.fog.far)
+  hemi.color.setHex(t.hemi.sky)
+  hemi.groundColor.setHex(t.hemi.ground)
+  hemi.intensity = t.hemi.intensity
+  sun.color.setHex(t.sun.color)
+  sun.intensity = t.sun.intensity
+  renderer.shadowMap.needsUpdate = true // re-render the static shadow map
+}
 
 const input = new Input()
 const player = new PlayerController(physics, camera)
@@ -308,6 +337,7 @@ function aliveCounts(): { allies: number; enemies: number } {
 let selectedDifficulty: Difficulty = 'normal'
 let selectedPrimary = 'ar'
 let selectedSecondary = 'pistol'
+let selectedMap = 'random'
 let bannerTimeout = 0
 
 function showBanner(text: string, sub = '', seconds = 1) {
@@ -375,6 +405,7 @@ function endDuelCleanup() {
 }
 
 function beginDuel() {
+  loadMap(resolveMapId()) // pick the arena for this match
   for (const d of dummies) d.setEnabled(false)
   weapons.allowCycling = false // duel loadout is locked
   duel.startMatch()
@@ -452,6 +483,7 @@ function firstEnemyEntry(): [string, OnlineEntity] | null {
  * local Bot instances for bots when we are the host. */
 function setupRoster(info: RosterInfo) {
   teardownRoster()
+  loadMap(info.mapId) // server-chosen arena, identical for everyone
   onlineYouId = info.you
   onlineTeamSize = info.teamSize
   onlineIsHost = info.you === info.hostId
@@ -601,7 +633,7 @@ function renderLobby(info: LobbyInfo) {
       .join(', ') || '—'
   const me = info.players.find((p) => p.id === info.you)
   setOnlineStatus(
-    `방 <b>${info.code}</b> (${info.teamSize}v${info.teamSize}) · ${info.players.length}/${cap}명 · 빈자리는 봇<br/>` +
+    `방 <b>${info.code}</b> (${info.teamSize}v${info.teamSize}) · 맵: ${mapById(info.mapId).name} · ${info.players.length}/${cap}명 · 빈자리는 봇<br/>` +
       `<span style="color:#57d38c">팀 A: ${label(0)}</span> · <span style="color:#ff5a3c">팀 B: ${label(1)}</span>`,
     !(me?.ready ?? false),
   )
@@ -672,7 +704,7 @@ onlineCreateBtn.addEventListener('click', async () => {
   audio.ensure()
   setOnlineStatus('서버 연결 중…')
   try {
-    await online.create(defaultServerUrl(), teamSize)
+    await online.create(defaultServerUrl(), teamSize, resolveMapId())
   } catch {
     setOnlineStatus('서버에 연결할 수 없습니다 (잠시 후 다시 시도해주세요)')
   }
@@ -996,6 +1028,7 @@ async function startGame() {
 playBtn.addEventListener('click', () => {
   if (online.active) return // cancel the online room first
   pendingDuel = false
+  loadMap(resolveMapId()) // practice uses the chosen arena too
   void startGame()
 })
 duelBtn.addEventListener('click', () => {
@@ -1017,6 +1050,13 @@ function wireToggleGroup(selector: string, onPick: (id: string) => void) {
 }
 wireToggleGroup('.diff-btn', (id) => (selectedDifficulty = id as Difficulty))
 wireToggleGroup('.size-btn', (id) => (teamSize = Math.max(1, Math.min(4, Number(id) || 1))))
+wireToggleGroup('.map-btn', (id) => (selectedMap = id))
+
+/** Resolve the menu map choice ('random' → a concrete map id). */
+function resolveMapId(): string {
+  if (selectedMap !== 'random') return selectedMap
+  return MAPS[Math.floor(Math.random() * MAPS.length)].id
+}
 wireToggleGroup('.primary-btn', (id) => {
   selectedPrimary = id
   applyLoadoutPick()
@@ -1351,6 +1391,9 @@ requestAnimationFrame(frame)
       remoteX: (firstEnemyEntry()?.[1].remote?.position ?? firstEnemyEntry()?.[1].bot?.controller.position)?.x ?? 0,
       remoteZ: (firstEnemyEntry()?.[1].remote?.position ?? firstEnemyEntry()?.[1].bot?.controller.position)?.z ?? 0,
     }
+  },
+  get map() {
+    return { id: currentMapId, sky: (scene.background as THREE.Color).getHex(), colliders: physics.colliders.length }
   },
   get polish() {
     return {
