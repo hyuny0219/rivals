@@ -9,7 +9,7 @@ export interface DuelCallbacks {
   /** Reset both fighters to their spawn points with full HP/ammo. */
   onRoundStart: (round: number) => void
   /** Round banner text ('3', '2', '1', 'GO!', '라운드 승리!', ...). */
-  onBanner: (text: string, sub?: string) => void
+  onBanner: (text: string, sub: string, seconds: number) => void
   onMatchEnd: (playerWon: boolean) => void
 }
 
@@ -67,12 +67,16 @@ export class DuelManager {
     if (this.playerScore >= WIN_SCORE || this.botScore >= WIN_SCORE) {
       this.state = 'matchEnd'
       this.timer = MATCH_END_SECONDS
-      this.cb.onBanner(this.playerScore >= WIN_SCORE ? '승리!' : '패배', `${this.playerScore} : ${this.botScore}`)
+      this.cb.onBanner(
+        this.playerScore >= WIN_SCORE ? '승리!' : '패배',
+        `${this.playerScore} : ${this.botScore}`,
+        MATCH_END_SECONDS - 0.5,
+      )
       this.cb.onMatchEnd(this.playerScore >= WIN_SCORE)
     } else {
       this.state = 'roundEnd'
       this.timer = ROUND_END_SECONDS
-      this.cb.onBanner(playerWon ? '라운드 승리!' : '라운드 패배', `${this.playerScore} : ${this.botScore}`)
+      this.cb.onBanner(playerWon ? '라운드 승리!' : '라운드 패배', `${this.playerScore} : ${this.botScore}`, 2)
     }
   }
 
@@ -86,11 +90,11 @@ export class DuelManager {
       const count = Math.ceil(this.timer)
       if (count !== this.lastCount && count > 0) {
         this.lastCount = count
-        this.cb.onBanner(String(count))
+        this.cb.onBanner(String(count), `라운드 ${this.round}`, 0.95)
       }
       if (this.timer <= 0) {
         this.state = 'combat'
-        this.cb.onBanner('GO!')
+        this.cb.onBanner('GO!', '', 0.7)
       }
     } else if (this.state === 'roundEnd') {
       this.timer -= dt

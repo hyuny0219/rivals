@@ -83,6 +83,8 @@ export class PhysicsWorld {
     return true
   }
 
+  private vCenter = new THREE.Vector3()
+
   /**
    * Nearest hit along a ray against static geometry and live hitboxes.
    * `ignore` skips one entity (the shooter).
@@ -102,9 +104,18 @@ export class PhysicsWorld {
     }
     for (const h of this.hitboxes) {
       if (!h.entity.alive || h.entity === ignore) continue
-      // a camera standing inside a hitbox must not "hit" it at distance 0
-      // regardless of aim direction
-      if (h.box.containsPoint(origin)) continue
+      // ray starting inside a hitbox (entities don't collide with each
+      // other, so overlap happens): count it as a point-blank hit only when
+      // shooting toward the entity's center, never when facing away
+      if (h.box.containsPoint(origin)) {
+        const toward = h.box.getCenter(this.vCenter).sub(origin).dot(dir) > 0
+        if (toward && best > 0.01) {
+          best = 0.01
+          bestHitbox = h
+          found = true
+        }
+        continue
+      }
       const t = rayBoxDistance(origin, dir, h.box, best)
       if (t !== null && t < best) {
         best = t

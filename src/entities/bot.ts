@@ -169,7 +169,9 @@ export class Bot implements Damageable {
     if (!this.alive) return
     const pos = this.controller.position
     this.vEye.set(pos.x, pos.y + EYE, pos.z)
-    this.vTargetEye.copy(this.target.position).y += 1.4
+    // aim at the target's mass center: it tracks stance (slide) so shots
+    // stay inside the actual hitbox
+    this.vTargetEye.copy(this.target.center)
 
     const dist = this.vEye.distanceTo(this.vTargetEye)
     const los = this.hasLineOfSight(dist)

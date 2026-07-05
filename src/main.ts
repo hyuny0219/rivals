@@ -139,7 +139,10 @@ function respawn() {
 }
 
 function syncPlayerCenter() {
-  playerTarget.center.copy(player.position).y += 0.9
+  // mass center follows the stance so bots aim at (and blasts measure to)
+  // a point inside the actual hitbox even while sliding
+  const h = player.sliding ? 0.95 : 1.8
+  playerTarget.center.copy(player.position).y += h * 0.5
 }
 respawn()
 
@@ -169,7 +172,7 @@ const projectiles = new ProjectileManager(
   scene,
   physics,
   effects,
-  () => [...dummies, playerTarget],
+  () => [...dummies, playerTarget, bot],
   (target, _damage, killed) => {
     if (target !== playerTarget) showHitmarker(killed)
   },
@@ -210,15 +213,14 @@ function showBanner(text: string, sub = '', seconds = 1) {
 }
 
 const duel = new DuelManager({
-  onRoundStart: (round) => {
+  onRoundStart: () => {
     respawn()
     weapons.setLoadout(selectedPrimary, selectedSecondary)
     bot.setDifficulty(selectedDifficulty)
     bot.reset(map.spawns[1].position.clone(), map.spawns[1].yaw)
     projectiles.clear()
-    showBanner(`라운드 ${round}`, `${duel.playerScore} : ${duel.botScore}`, 1.1)
   },
-  onBanner: (text, sub) => showBanner(text, sub ?? '', text.length <= 3 ? 0.9 : 2),
+  onBanner: (text, sub, seconds) => showBanner(text, sub, seconds),
   onMatchEnd: () => {
     /* the manager returns to idle after its timer; cleanup happens below */
   },
@@ -229,6 +231,8 @@ function endDuelCleanup() {
   bot.group.visible = false
   for (const d of dummies) d.setEnabled(true)
   projectiles.clear()
+  playerTarget.hp = MAX_HP // don't carry a dead/damaged state into practice
+  playerTarget.lastDamageAt = -Infinity
   scoreWrap.classList.add('hidden')
   botHpWrap.classList.add('hidden')
   if (document.pointerLockElement === canvas) document.exitPointerLock()
@@ -432,8 +436,9 @@ function frame(now: number) {
         weapons.update(PHYSICS_STEP, input)
         projectiles.update(PHYSICS_STEP)
         if (duel.active) bot.update(PHYSICS_STEP)
-        // out-of-combat regen runs on game time, not wall-clock time
-        if (playerTarget.hp < MAX_HP && elapsed - playerTarget.lastDamageAt > HP_REGEN_DELAY) {
+        // out-of-combat regen (practice only — duel rounds reset HP instead,
+        // and regen would reward stalling behind cover)
+        if (!duel.active && playerTarget.hp < MAX_HP && elapsed - playerTarget.lastDamageAt > HP_REGEN_DELAY) {
           playerTarget.hp = Math.min(MAX_HP, playerTarget.hp + HP_REGEN_PER_SECOND * PHYSICS_STEP)
         }
       }
@@ -455,8 +460,19 @@ function frame(now: number) {
     input.clearPressed()
   }
 
-  // safety net: fell out of the map somehow → respawn
-  if (player.position.y < -20) respawn()
+  // safety net: fell out of the map somehow
+  if (player.position.y < -20) {
+    if (duel.active) {
+      // falling out during a duel loses the round; no free heal
+      player.spawn(map.spawns[0].position, map.spawns[0].yaw)
+      if (duel.state === 'combat') {
+        addFeedEntry('<b>YOU</b> 추락')
+        duel.playerDied()
+      }
+    } else {
+      respawn()
+    }
+  }
 
   renderer.render(scene, camera)
   requestAnimationFrame(frame)
